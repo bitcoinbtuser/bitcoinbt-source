@@ -15,6 +15,8 @@
 #include <vector>
 #include <stdint.h>
 
+
+
 class CPubKey;
 class XOnlyPubKey;
 class CScript;
@@ -248,7 +250,21 @@ public:
         return false;
     }
 
-    virtual bool CheckSchnorrSignature(Span<const unsigned char> sig, Span<const unsigned char> pubkey, SigVersion sigversion, ScriptExecutionData& execdata, ScriptError* serror = nullptr) const
+      virtual bool CheckSchnorrSignature(Span<const unsigned char> sig,
+                                       Span<const unsigned char> pubkey,
+                                       SigVersion sigversion,
+                                       ScriptExecutionData& execdata,
+                                       ScriptError* serror = nullptr) const
+    {
+        return false;
+    }
+
+    // ✅ 여기에 아래 줄 삽입
+    virtual bool CheckMuSig2Signature(Span<const unsigned char> sig,
+                                      Span<const unsigned char> agg_pubkey,
+                                      SigVersion sigversion,
+                                      ScriptExecutionData& execdata,
+                                      ScriptError* serror = nullptr) const
     {
         return false;
     }
@@ -262,6 +278,7 @@ public:
     {
          return false;
     }
+
 
     virtual ~BaseSignatureChecker() {}
 };
@@ -297,6 +314,11 @@ public:
     GenericTransactionSignatureChecker(const T* txToIn, unsigned int nInIn, const CAmount& amountIn, const PrecomputedTransactionData& txdataIn, MissingDataBehavior mdb) : txTo(txToIn), m_mdb(mdb), nIn(nInIn), amount(amountIn), txdata(&txdataIn) {}
     bool CheckECDSASignature(const std::vector<unsigned char>& scriptSig, const std::vector<unsigned char>& vchPubKey, const CScript& scriptCode, SigVersion sigversion) const override;
     bool CheckSchnorrSignature(Span<const unsigned char> sig, Span<const unsigned char> pubkey, SigVersion sigversion, ScriptExecutionData& execdata, ScriptError* serror = nullptr) const override;
+bool CheckMuSig2Signature(Span<const unsigned char> sig,
+                              Span<const unsigned char> agg_pubkey,
+                              SigVersion sigversion,
+                              ScriptExecutionData& execdata,
+                              ScriptError* serror = nullptr) const override;
     bool CheckLockTime(const CScriptNum& nLockTime) const override;
     bool CheckSequence(const CScriptNum& nSequence) const override;
 };

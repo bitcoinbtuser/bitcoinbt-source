@@ -9,9 +9,10 @@
 #include <attributes.h>
 #include <crypto/common.h>
 #include <prevector.h>
-#include <serialize.h>
 #include <uint256.h>
 #include <util/hash_type.h>
+
+#include <serialize.h>
 
 #include <assert.h>
 #include <climits>
@@ -204,10 +205,18 @@ enum opcodetype
     OP_NOP9 = 0xb8,
     OP_NOP10 = 0xb9,
 
-    // Opcode added by BIP 342 (Tapscript)
+       // Opcode added by BIP 342 (Tapscript)
     OP_CHECKSIGADD = 0xba,
+    OP_CHECKSIGMUSIG2 = 0xbb,
+
+    // === CashTokens extension opcodes ===
+    OP_TOKEN_PREFIX      = 0xc0,
+    OP_TOKEN_MINT        = 0xc1,
+    OP_TOKEN_TRANSFER    = 0xc2,
+    OP_TOKEN_AUTHORITY   = 0xc3,
 
     OP_INVALIDOPCODE = 0xff,
+
 };
 
 // Maximum value that an opcode can be

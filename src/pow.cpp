@@ -9,113 +9,141 @@
 #include <chain.h>
 #include <primitives/block.h>
 #include <uint256.h>
+#include <util/check.h>
 
-unsigned int GetNextWorkRequired(const CBlockIndex* pindexLast, const CBlockHeader *pblock, const Consensus::Params& params)
+unsigned int GetNextWorkRequired(const CBlockIndex* pindexLast, const CBlockHeader* pblock, const Consensus::Params& params)
 {
-    assert(pindexLast != nullptr);
-    unsigned int nProofOfWorkLimit = UintToArith256(params.powLimit).GetCompact();
+    const int next_height = pindexLast->nHeight + 1;
 
-    // Only change once per difficulty adjustment interval
-    if ((pindexLast->nHeight+1) % params.DifficultyAdjustmentInterval() != 0)
-    {
-        if (params.fPowAllowMinDifficultyBlocks)
-        {
-            // Special difficulty rule for testnet:
-            // If the new block's timestamp is more than 2* 10 minutes
-            // then allow mining of a min-difficulty block.
-            if (pblock->GetBlockTime() > pindexLast->GetBlockTime() + params.nPowTargetSpacing*2)
-                return nProofOfWorkLimit;
-            else
-            {
-                // Return the last non-special-min-difficulty-rules-block
-                const CBlockIndex* pindex = pindexLast;
-                while (pindex->pprev && pindex->nHeight % params.DifficultyAdjustmentInterval() != 0 && pindex->nBits == nProofOfWorkLimit)
-                    pindex = pindex->pprev;
-                return pindex->nBits;
-            }
+    // BTCBT 하드포크 이후 난이도 조정
+    if (next_height >= params.btcbt_fork_block_height) {
+        int btcbt_adjust_interval = (params.btcbt_block_interval > 0) ? 2016 : params.DifficultyAdjustmentInterval();
+
+        if (next_height % btcbt_adjust_interval != 0) {
+            return pindexLast->nBits;
         }
+
+        const CBlockIndex* pindexFirst = pindexLast;
+        for (int i = 0; i < btcbt_adjust_interval - 1; ++i) {
+            pindexFirst = pindexFirst->pprev;
+            assert(pindexFirst);
+        }
+
+        return CalculateNextWorkRequired(pindexLast, pindexFirst->GetBlockTime(), params);
+    }
+
+    // 기본 비트코인 난이도 조정
+    if ((next_height % params.DifficultyAdjustmentInterval()) != 0) {
         return pindexLast->nBits;
     }
 
-    // Go back by what we want to be 14 days worth of blocks
-    int nHeightFirst = pindexLast->nHeight - (params.DifficultyAdjustmentInterval()-1);
-    assert(nHeightFirst >= 0);
-    const CBlockIndex* pindexFirst = pindexLast->GetAncestor(nHeightFirst);
-    assert(pindexFirst);
+    const CBlockIndex* pindexFirst = pindexLast;
+    for (int i = 0; i < params.DifficultyAdjustmentInterval() - 1; ++i) {
+        pindexFirst = pindexFirst->pprev;
+        assert(pindexFirst);
+    }
 
     return CalculateNextWorkRequired(pindexLast, pindexFirst->GetBlockTime(), params);
 }
 
 unsigned int CalculateNextWorkRequired(const CBlockIndex* pindexLast, int64_t nFirstBlockTime, const Consensus::Params& params)
 {
-    if (params.fPowNoRetargeting)
-        return pindexLast->nBits;
+    assert(pindexLast != nullptr);
 
-    // Limit adjustment step
+    // BTCBT ASERT 활성 조건
+    if (pindexLast->nHeight + 1 >= params.btcbt_fork_block_height) {
+        const int64_t target_block_time = params.btcbt_block_interval;
+        const arith_uint256 powLimit = UintToArith256(params.powLimit);
+
+        const CBlockIndex* pindex_ref = pindexLast;
+
+        // ✅ 보완: 정확한 anchor 블록 도달까지 이동
+        while (pindex_ref->pprev &&
+               pindex_ref->nHeight > params.btcbt_asert_anchor_height &&
+               pindex_ref->GetBlockHash() != params.btcbt_asert_anchor_hash) {
+            pindex_ref = pindex_ref->pprev;
+        }
+
+        // ⛔ 실패 시 fallback (안전장치)
+        if (!pindex_ref || pindex_ref->GetBlockHash() != params.btcbt_asert_anchor_hash)
+            return powLimit.GetCompact();
+
+        int64_t time_diff = pindexLast->GetBlockTime() - pindex_ref->GetBlockTime();
+        int64_t height_diff = pindexLast->nHeight - pindex_ref->nHeight;
+        int64_t ideal_time_diff = height_diff * target_block_time;
+        int64_t time_offset = time_diff - ideal_time_diff;
+
+        arith_uint256 target;
+        target.SetCompact(pindex_ref->nBits);
+
+        int64_t exponent = (time_offset * 65536) / target_block_time;
+
+        target *= arith_uint256(1) << (exponent / 65536);
+        target *= 10000 + ((exponent % 65536) * 10000) / 65536;
+        target /= 10000;
+
+        if (target > powLimit) target = powLimit;
+
+        return target.GetCompact();
+    }
+
+    // 기존 비트코인 방식
+    int64_t nTargetTimespan = params.nPowTargetTimespan;
     int64_t nActualTimespan = pindexLast->GetBlockTime() - nFirstBlockTime;
-    if (nActualTimespan < params.nPowTargetTimespan/4)
-        nActualTimespan = params.nPowTargetTimespan/4;
-    if (nActualTimespan > params.nPowTargetTimespan*4)
-        nActualTimespan = params.nPowTargetTimespan*4;
 
-    // Retarget
-    const arith_uint256 bnPowLimit = UintToArith256(params.powLimit);
+    const int64_t nMinTimespan = nTargetTimespan / 4;
+    const int64_t nMaxTimespan = nTargetTimespan * 4;
+    nActualTimespan = std::clamp(nActualTimespan, nMinTimespan, nMaxTimespan);
+
     arith_uint256 bnNew;
     bnNew.SetCompact(pindexLast->nBits);
     bnNew *= nActualTimespan;
-    bnNew /= params.nPowTargetTimespan;
+    bnNew /= nTargetTimespan;
 
-    if (bnNew > bnPowLimit)
-        bnNew = bnPowLimit;
+    if (bnNew > UintToArith256(params.powLimit)) {
+        bnNew = UintToArith256(params.powLimit);
+    }
 
     return bnNew.GetCompact();
 }
 
-// Check that on difficulty adjustments, the new difficulty does not increase
-// or decrease beyond the permitted limits.
 bool PermittedDifficultyTransition(const Consensus::Params& params, int64_t height, uint32_t old_nbits, uint32_t new_nbits)
 {
     if (params.fPowAllowMinDifficultyBlocks) return true;
 
-    if (height % params.DifficultyAdjustmentInterval() == 0) {
-        int64_t smallest_timespan = params.nPowTargetTimespan/4;
-        int64_t largest_timespan = params.nPowTargetTimespan*4;
+    bool is_fork = (height >= params.btcbt_fork_block_height);
+    int64_t interval = is_fork ? (params.btcbt_block_interval > 0 ? 2016 : params.DifficultyAdjustmentInterval())
+                               : params.DifficultyAdjustmentInterval();
+
+    if (height % interval == 0) {
+        int64_t timespan = is_fork && params.btcbt_block_interval > 0 ? (params.btcbt_block_interval * 2016) : params.nPowTargetTimespan;
+
+        const int64_t min_timespan = timespan / 4;
+        const int64_t max_timespan = timespan * 4;
 
         const arith_uint256 pow_limit = UintToArith256(params.powLimit);
         arith_uint256 observed_new_target;
         observed_new_target.SetCompact(new_nbits);
 
-        // Calculate the largest difficulty value possible:
-        arith_uint256 largest_difficulty_target;
-        largest_difficulty_target.SetCompact(old_nbits);
-        largest_difficulty_target *= largest_timespan;
-        largest_difficulty_target /= params.nPowTargetTimespan;
-
-        if (largest_difficulty_target > pow_limit) {
-            largest_difficulty_target = pow_limit;
+        arith_uint256 largest_target;
+        largest_target.SetCompact(old_nbits);
+        largest_target *= max_timespan;
+        largest_target /= timespan;
+        if (largest_target > pow_limit) {
+            largest_target = pow_limit;
         }
 
-        // Round and then compare this new calculated value to what is
-        // observed.
-        arith_uint256 maximum_new_target;
-        maximum_new_target.SetCompact(largest_difficulty_target.GetCompact());
-        if (maximum_new_target < observed_new_target) return false;
+        if (observed_new_target > largest_target) return false;
 
-        // Calculate the smallest difficulty value possible:
-        arith_uint256 smallest_difficulty_target;
-        smallest_difficulty_target.SetCompact(old_nbits);
-        smallest_difficulty_target *= smallest_timespan;
-        smallest_difficulty_target /= params.nPowTargetTimespan;
-
-        if (smallest_difficulty_target > pow_limit) {
-            smallest_difficulty_target = pow_limit;
+        arith_uint256 smallest_target;
+        smallest_target.SetCompact(old_nbits);
+        smallest_target *= min_timespan;
+        smallest_target /= timespan;
+        if (smallest_target > pow_limit) {
+            smallest_target = pow_limit;
         }
 
-        // Round and then compare this new calculated value to what is
-        // observed.
-        arith_uint256 minimum_new_target;
-        minimum_new_target.SetCompact(smallest_difficulty_target.GetCompact());
-        if (minimum_new_target > observed_new_target) return false;
+        if (observed_new_target < smallest_target) return false;
     } else if (old_nbits != new_nbits) {
         return false;
     }
@@ -130,13 +158,13 @@ bool CheckProofOfWork(uint256 hash, unsigned int nBits, const Consensus::Params&
 
     bnTarget.SetCompact(nBits, &fNegative, &fOverflow);
 
-    // Check range
-    if (fNegative || bnTarget == 0 || fOverflow || bnTarget > UintToArith256(params.powLimit))
+    if (fNegative || bnTarget == 0 || fOverflow || bnTarget > UintToArith256(params.powLimit)) {
         return false;
+    }
 
-    // Check proof of work matches claimed amount
-    if (UintToArith256(hash) > bnTarget)
+    if (UintToArith256(hash) > bnTarget) {
         return false;
+    }
 
     return true;
 }

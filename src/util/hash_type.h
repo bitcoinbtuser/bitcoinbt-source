@@ -5,6 +5,8 @@
 #ifndef BITCOIN_UTIL_HASH_TYPE_H
 #define BITCOIN_UTIL_HASH_TYPE_H
 
+#include <vector>
+
 template <typename HashType>
 class BaseHash
 {

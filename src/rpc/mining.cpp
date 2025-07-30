@@ -21,6 +21,7 @@
 #include <pow.h>
 #include <rpc/blockchain.h>
 #include <rpc/mining.h>
+#include <logging.h> 
 #include <rpc/server.h>
 #include <rpc/server_util.h>
 #include <rpc/util.h>
@@ -142,11 +143,11 @@ static bool GenerateBlock(ChainstateManager& chainman, CBlock& block, uint64_t& 
     return true;
 }
 
-static UniValue generateBlocks(ChainstateManager& chainman, const CTxMemPool& mempool, const CScript& coinbase_script, int nGenerate, uint64_t nMaxTries)
+ UniValue generateBlocks(ChainstateManager& chainman, const CTxMemPool& mempool, const CScript& coinbase_script, int nGenerate, uint64_t nMaxTries)
 {
     UniValue blockHashes(UniValue::VARR);
     while (nGenerate > 0 && !ShutdownRequested()) {
-        std::unique_ptr<CBlockTemplate> pblocktemplate(BlockAssembler{chainman.ActiveChainstate(), &mempool}.CreateNewBlock(coinbase_script));
+        std::unique_ptr<node::CBlockTemplate> pblocktemplate(BlockAssembler{chainman.ActiveChainstate(), &mempool}.CreateNewBlock(coinbase_script));
         if (!pblocktemplate.get())
             throw JSONRPCError(RPC_INTERNAL_ERROR, "Couldn't create new block");
 
@@ -435,9 +436,15 @@ static RPCHelpMan getmininginfo()
     obj.pushKV("difficulty",       (double)GetDifficulty(active_chain.Tip()));
     obj.pushKV("networkhashps",    getnetworkhashps().HandleRequest(request));
     obj.pushKV("pooledtx",         (uint64_t)mempool.size());
-    obj.pushKV("chain", chainman.GetParams().GetChainTypeString());
+        obj.pushKV("chain", chainman.GetParams().GetChainTypeString());
     obj.pushKV("warnings",         GetWarnings(false).original);
+
+    // BTCBT 식별자 추가
+    obj.pushKV("btcbt_chain_id", "BTCBT");
+    obj.pushKV("btcbt_version", "3.0");
+
     return obj;
+
 },
     };
 }
@@ -517,7 +524,7 @@ static RPCHelpMan getprioritisedtransactions()
 
 
 // NOTE: Assumes a conclusive result; if result is inconclusive, it must be handled by caller
-static UniValue BIP22ValidationResult(const BlockValidationState& state)
+ UniValue BIP22ValidationResult(const BlockValidationState& state)
 {
     if (state.IsValid())
         return UniValue::VNULL;
@@ -535,7 +542,7 @@ static UniValue BIP22ValidationResult(const BlockValidationState& state)
     return "valid?";
 }
 
-static std::string gbt_vb_name(const Consensus::DeploymentPos pos) {
+ std::string gbt_vb_name(const Consensus::DeploymentPos pos) {
     const struct VBDeploymentInfo& vbinfo = VersionBitsDeploymentInfo[pos];
     std::string s = vbinfo.name;
     if (!vbinfo.gbt_force) {
@@ -861,8 +868,15 @@ static RPCHelpMan getblocktemplate()
     result.pushKV("capabilities", aCaps);
 
     UniValue aRules(UniValue::VARR);
-    aRules.push_back("csv");
-    if (!fPreSegWit) aRules.push_back("!segwit");
+aRules.push_back("csv");
+if (!fPreSegWit) aRules.push_back("!segwit");
+
+// BTCBT 하드포크 이후에는 특별 rules 표시
+const CChainParams& chainparams = Params();
+if (pindexPrev->nHeight + 1 >= chainparams.GetConsensus().btcbt_fork_block_height) {
+    aRules.push_back("btcbt-hardfork");
+}
+
     if (consensusParams.signet_blocks) {
         // indicate to miner that they must understand signet rules
         // when attempting to mine with this template
@@ -882,18 +896,21 @@ static RPCHelpMan getblocktemplate()
                 // Ensure bit is set in block version
                 pblock->nVersion |= chainman.m_versionbitscache.Mask(consensusParams, pos);
                 [[fallthrough]];
-            case ThresholdState::STARTED:
-            {
-                const struct VBDeploymentInfo& vbinfo = VersionBitsDeploymentInfo[pos];
-                vbavailable.pushKV(gbt_vb_name(pos), consensusParams.vDeployments[pos].bit);
-                if (setClientRules.find(vbinfo.name) == setClientRules.end()) {
-                    if (!vbinfo.gbt_force) {
-                        // If the client doesn't support this, don't indicate it in the [default] version
-                        pblock->nVersion &= ~chainman.m_versionbitscache.Mask(consensusParams, pos);
-                    }
-                }
-                break;
-            }
+           case ThresholdState::STARTED:
+{
+    const struct VBDeploymentInfo& vbinfo = VersionBitsDeploymentInfo[pos];
+    // BTCBT 포크 체인에서는 자체 하드포크 rule을 versionbits에 포함하지 않음
+    if (std::string(vbinfo.name) != "btcbt-hardfork") {
+        vbavailable.pushKV(gbt_vb_name(pos), consensusParams.vDeployments[pos].bit);
+    }
+    if (setClientRules.find(vbinfo.name) == setClientRules.end()) {
+        if (!vbinfo.gbt_force) {
+            pblock->nVersion &= ~chainman.m_versionbitscache.Mask(consensusParams, pos);
+        }
+    }
+    break;
+}
+
             case ThresholdState::ACTIVE:
             {
                 // Add to rules only
@@ -917,7 +934,18 @@ static RPCHelpMan getblocktemplate()
     result.pushKV("previousblockhash", pblock->hashPrevBlock.GetHex());
     result.pushKV("transactions", transactions);
     result.pushKV("coinbaseaux", aux);
-    result.pushKV("coinbasevalue", (int64_t)pblock->vtx[0]->vout[0].nValue);
+    CAmount coinbaseReward = (int64_t)pblock->vtx[0]->vout[0].nValue;
+result.pushKV("coinbasevalue", coinbaseReward);
+
+// BTCBT: 포크 후 첫 블록 특별 보상 3,000,000 BTCBT
+if (pindexPrev->nHeight + 1 == chainparams.GetConsensus().btcbt_fork_block_height + 1) {
+    result.pushKV("btcbt_initial_reward", coinbaseReward);
+}
+// BTCBT: 포크 체인 식별 정보 삽입
+result.pushKV("btcbt_chain_id", "BTCBT");
+result.pushKV("btcbt_version", "3.0");
+result.pushKV("btcbt_fork_active", true);
+
     result.pushKV("longpollid", active_chain.Tip()->GetBlockHash().GetHex() + ToString(nTransactionsUpdatedLast));
     result.pushKV("target", hashTarget.GetHex());
     result.pushKV("mintime", (int64_t)pindexPrev->GetMedianTimePast()+1);
@@ -1032,6 +1060,16 @@ static RPCHelpMan submitblock()
     if (!new_block && accepted) {
         return "duplicate";
     }
+const CBlockIndex* pindexPrev = chainman.m_blockman.LookupBlockIndex(block.hashPrevBlock);
+const Consensus::Params& params = chainman.GetConsensus();
+if (pindexPrev && pindexPrev->nHeight + 1 == params.btcbt_fork_block_height + 1) {
+    CAmount actual = block.vtx[0]->vout[0].nValue;
+    if (actual < 300000000000000) {
+        LogPrintf("Rejected: invalid BTCBT fork reward at height %d (found %ld)\n", pindexPrev->nHeight + 1, actual);
+        return "rejected: btcbt fork block must have 3,000,000 BTCBT reward";
+    }
+}
+
     if (!sc->found) {
         return "inconclusive";
     }

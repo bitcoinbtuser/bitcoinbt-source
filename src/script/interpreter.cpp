@@ -4,6 +4,7 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <script/interpreter.h>
+#include <logging.h>
 
 #include <crypto/ripemd160.h>
 #include <crypto/sha1.h>
@@ -1080,8 +1081,46 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                 }
                 break;
 
-                case OP_CHECKSIGADD:
-                {
+case OP_CHECKSIGMUSIG2:
+{
+    if (stack.size() < 2)
+        return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+
+    valtype& vchSig    = stacktop(-2);
+    valtype& vchPubKey = stacktop(-1);
+
+    bool fSuccess = checker.CheckMuSig2Signature(vchSig, vchPubKey, sigversion, execdata, serror);
+    if (!fSuccess && (flags & SCRIPT_VERIFY_NULLFAIL) && vchSig.size())
+        return set_error(serror, SCRIPT_ERR_SIG_NULLFAIL);
+
+    popstack(stack);
+    popstack(stack);
+    stack.push_back(fSuccess ? vchTrue : vchFalse);
+}
+break;
+
+// ⬇️⬇️⬇️ 여기에 CashTokens OP 분기 추가 ⬇️⬇️⬇️
+
+//case OP_TOKEN_PREFIX:
+  //  LogPrint(BCLog::SCRIPT, "OP_TOKEN_PREFIX encountered (CashToken UTXO start)\n");
+    //break;
+
+//case OP_TOKEN_TRANSFER:
+  //  LogPrint(BCLog::SCRIPT, "OP_TOKEN_TRANSFER encountered (Token transfer)\n");
+    //break;
+
+//case OP_TOKEN_MINT:
+  //  LogPrint(BCLog::SCRIPT, "OP_TOKEN_MINT encountered (Token minting)\n");
+   // break;
+
+//case OP_TOKEN_AUTHORITY:
+  //  LogPrint(BCLog::SCRIPT, "OP_TOKEN_AUTHORITY encountered (Authority check)\n");
+   // break;
+
+// ⬆️⬆️⬆️ 위 분기들 아래에 계속 OP 코드 이어짐 ⬆️⬆️⬆️
+
+case OP_CHECKSIGADD:
+{
                     // OP_CHECKSIGADD is only available in Tapscript
                     if (sigversion == SigVersion::BASE || sigversion == SigVersion::WITNESS_V0) return set_error(serror, SCRIPT_ERR_BAD_OPCODE);
 
@@ -1694,6 +1733,43 @@ bool GenericTransactionSignatureChecker<T>::CheckSchnorrSignature(Span<const uns
         return set_error(serror, SCRIPT_ERR_SCHNORR_SIG_HASHTYPE);
     }
     if (!VerifySchnorrSignature(sig, pubkey, sighash)) return set_error(serror, SCRIPT_ERR_SCHNORR_SIG);
+    return true;
+}
+
+template <class T>
+bool GenericTransactionSignatureChecker<T>::CheckMuSig2Signature(
+    Span<const unsigned char> sig,
+    Span<const unsigned char> agg_pubkey,
+    SigVersion sigversion,
+    ScriptExecutionData& execdata,
+    ScriptError* serror) const
+{
+    assert(sigversion == SigVersion::TAPROOT || sigversion == SigVersion::TAPSCRIPT);
+    assert(agg_pubkey.size() == 32); // XOnlyPubKey
+    if (sig.size() != 64 && sig.size() != 65) {
+        return set_error(serror, SCRIPT_ERR_SCHNORR_SIG_SIZE);
+    }
+
+    XOnlyPubKey pubkey{agg_pubkey};
+    uint8_t hashtype = SIGHASH_DEFAULT;
+    if (sig.size() == 65) {
+        hashtype = SpanPopBack(sig);
+        if (hashtype == SIGHASH_DEFAULT) {
+            return set_error(serror, SCRIPT_ERR_SCHNORR_SIG_HASHTYPE);
+        }
+    }
+
+    uint256 sighash;
+    if (!this->txdata) return HandleMissingData(m_mdb);
+    if (!SignatureHashSchnorr(sighash, execdata, *txTo, nIn, hashtype, sigversion, *this->txdata, m_mdb)) {
+        return set_error(serror, SCRIPT_ERR_SCHNORR_SIG_HASHTYPE);
+    }
+
+    // MuSig2는 일반 Schnorr과 동일한 검증 방식 (현재 구현에서는 비구분 처리 가능)
+    if (!pubkey.VerifySchnorr(sighash, sig)) {
+        return set_error(serror, SCRIPT_ERR_SCHNORR_SIG);
+    }
+
     return true;
 }
 

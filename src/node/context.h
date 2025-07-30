@@ -77,6 +77,7 @@ struct NodeContext {
     NodeContext();
     ~NodeContext();
 };
+extern NodeContext* g_node;
 } // namespace node
 
 #endif // BITCOIN_NODE_CONTEXT_H

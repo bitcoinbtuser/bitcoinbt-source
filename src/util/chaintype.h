@@ -13,8 +13,8 @@ enum class ChainType {
     TESTNET,
     SIGNET,
     REGTEST,
+    BTCBT  // ✅ 여기 추가
 };
-
 std::string ChainTypeToString(ChainType chain);
 
 std::optional<ChainType> ChainTypeFromString(std::string_view chain);

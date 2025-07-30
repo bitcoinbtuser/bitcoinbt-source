@@ -17,7 +17,12 @@
 #include <txmempool.h>
 #include <validation.h>
 
+
 namespace node {
 NodeContext::NodeContext() = default;
 NodeContext::~NodeContext() = default;
 } // namespace node
+
+namespace node {
+    NodeContext* g_node = nullptr;
+}

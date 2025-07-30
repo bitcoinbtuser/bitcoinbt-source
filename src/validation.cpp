@@ -3,7 +3,14 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
+
+
+#include <versionbits.h>
+
 #include <validation.h>
+#include <node/context.h>
+#include <node/chainstate.h>
+
 
 #include <kernel/chain.h>
 #include <kernel/coinstats.h>
@@ -19,6 +26,7 @@
 #include <consensus/tx_check.h>
 #include <consensus/tx_verify.h>
 #include <consensus/validation.h>
+#include <kernel/context.h>
 #include <cuckoocache.h>
 #include <flatfile.h>
 #include <hash.h>
@@ -36,6 +44,7 @@
 #include <policy/settings.h>
 #include <pow.h>
 #include <primitives/block.h>
+#include <txmempool.h>
 #include <primitives/transaction.h>
 #include <random.h>
 #include <reverse_iterator.h>
@@ -70,6 +79,10 @@
 #include <string>
 #include <tuple>
 #include <utility>
+
+#include <serialize.h>
+using node::g_node;
+int GetAdaptiveMaxBlockWeight(size_t mempool_tx_count);
 
 using kernel::CCoinsStats;
 using kernel::CoinStatsHashType;
@@ -695,12 +708,12 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
 {
     AssertLockHeld(cs_main);
     AssertLockHeld(m_pool.cs);
-    const CTransactionRef& ptx = ws.m_ptx;
+   
     const CTransaction& tx = *ws.m_ptx;
     const uint256& hash = ws.m_hash;
 
     // Copy/alias what we need out of args
-    const int64_t nAcceptTime = args.m_accept_time;
+    
     const bool bypass_limits = args.m_bypass_limits;
     std::vector<COutPoint>& coins_to_uncache = args.m_coins_to_uncache;
 
@@ -832,33 +845,24 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
         return state.Invalid(TxValidationResult::TX_WITNESS_MUTATED, "bad-witness-nonstandard");
     }
 
-    int64_t nSigOpsCost = GetTransactionSigOpCost(tx, m_view, STANDARD_SCRIPT_VERIFY_FLAGS);
+   int64_t nSigOpsCost = GetTransactionSigOpCost(tx, m_view, STANDARD_SCRIPT_VERIFY_FLAGS);
 
-    // ws.m_modified_fees includes any fee deltas from PrioritiseTransaction
-    ws.m_modified_fees = ws.m_base_fees;
-    m_pool.ApplyDelta(hash, ws.m_modified_fees);
+// ⬇️ 기존 코드 삭제 또는 주석 처리]
+// if (nSigOpsCost > MAX_STANDARD_TX_SIGOPS_COST)
+//     return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "bad-txns-too-many-sigops",
+//             strprintf("%d", nSigOpsCost));
 
-    // Keep track of transactions that spend a coinbase, which we re-scan
-    // during reorgs to ensure COINBASE_MATURITY is still met.
-    bool fSpendsCoinbase = false;
-    for (const CTxIn &txin : tx.vin) {
-        const Coin &coin = m_view.AccessCoin(txin.prevout);
-        if (coin.IsCoinBase()) {
-            fSpendsCoinbase = true;
-            break;
-        }
-    }
+// [✅ 새 코드 삽입]
+int64_t maxTxSigOps = MAX_STANDARD_TX_SIGOPS_COST;
+if (m_active_chainstate.m_chain.Height() >= m_active_chainstate.m_chainman.GetConsensus().btcbt_fork_block_height) {
+    maxTxSigOps = m_active_chainstate.m_chainman.GetConsensus().btcbt_max_block_sigops_cost;
+}
 
-    // Set entry_sequence to 0 when bypass_limits is used; this allows txs from a block
-    // reorg to be marked earlier than any child txs that were already in the mempool.
-    const uint64_t entry_sequence = bypass_limits ? 0 : m_pool.GetSequence();
-    entry.reset(new CTxMemPoolEntry(ptx, ws.m_base_fees, nAcceptTime, m_active_chainstate.m_chain.Height(), entry_sequence,
-                                    fSpendsCoinbase, nSigOpsCost, lock_points.value()));
-    ws.m_vsize = entry->GetTxSize();
+if (nSigOpsCost > maxTxSigOps) {
+    return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "bad-txns-too-many-sigops",
+                         strprintf("%d > %d", nSigOpsCost, maxTxSigOps));
+}
 
-    if (nSigOpsCost > MAX_STANDARD_TX_SIGOPS_COST)
-        return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "bad-txns-too-many-sigops",
-                strprintf("%d", nSigOpsCost));
 
     // No individual transactions are allowed below the min relay feerate except from disconnected blocks.
     // This requirement, unlike CheckFeeRate, cannot be bypassed using m_package_feerates because,
@@ -872,6 +876,16 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
     // No individual transactions are allowed below the mempool min feerate except from disconnected
     // blocks and transactions in a package. Package transactions will be checked using package
     // feerate later.
+    // BTCBT 포크 이후에만 적용할 수 있는 트랜잭션 정책들
+    if (m_active_chainstate.m_chain.Height() + 1 >= m_active_chainstate.m_chainman.GetConsensus().btcbt_fork_block_height) {
+        // 예: BTCBT는 포크 이후 최소 수수료를 더 낮게 허용할 수 있음
+        const CAmount btcbt_min_fee = /* 예시: */ 1000; // Satoshi per KB (또는 원하는 값)
+        if (ws.m_modified_fees < CFeeRate(btcbt_min_fee).GetFee(ws.m_vsize)) {
+            return state.Invalid(TxValidationResult::TX_MEMPOOL_POLICY, "btcbt-low-fee",
+                                 strprintf("fee %d below btcbt min %d", ws.m_modified_fees, CFeeRate(btcbt_min_fee).GetFee(ws.m_vsize)));
+        }
+    }
+
     if (!bypass_limits && !args.m_package_feerates && !CheckFeeRate(ws.m_vsize, ws.m_modified_fees, state)) return false;
 
     ws.m_iters_conflicting = m_pool.GetIterSet(ws.m_conflicts);
@@ -1637,15 +1651,28 @@ PackageMempoolAcceptResult ProcessNewPackage(Chainstate& active_chainstate, CTxM
 
 CAmount GetBlockSubsidy(int nHeight, const Consensus::Params& consensusParams)
 {
-    int halvings = nHeight / consensusParams.nSubsidyHalvingInterval;
-    // Force block reward to zero when right shift is undefined.
-    if (halvings >= 64)
-        return 0;
+    // BTCBT: 포크 후 첫 블록에 특별 보상
+    if (nHeight == consensusParams.btcbt_fork_block_height + 1) {
+        return 2000000 * COIN;
+    }
 
-    CAmount nSubsidy = 50 * COIN;
-    // Subsidy is cut in half every 210,000 blocks which will occur approximately every 4 years.
-    nSubsidy >>= halvings;
-    return nSubsidy;
+    int halvingInterval;
+    int halvings;
+
+    if (nHeight >= consensusParams.btcbt_fork_block_height + 1) {
+        halvingInterval = consensusParams.btcbt_halving_interval;
+        int forkStart = consensusParams.btcbt_fork_block_height + 1;
+        halvings = (nHeight - forkStart) / halvingInterval;
+    } else {
+        halvingInterval = consensusParams.nSubsidyHalvingInterval;
+        halvings = nHeight / halvingInterval;
+    }
+
+    if (halvings >= 64) {
+        return 0;
+    }
+
+    return 50 * COIN >> halvings;
 }
 
 CoinsViews::CoinsViews(DBParams db_params, CoinsViewOptions options)
@@ -2068,28 +2095,6 @@ void StopScriptCheckWorkerThreads()
 /**
  * Threshold condition checker that triggers when unknown versionbits are seen on the network.
  */
-class WarningBitsConditionChecker : public AbstractThresholdConditionChecker
-{
-private:
-    const ChainstateManager& m_chainman;
-    int m_bit;
-
-public:
-    explicit WarningBitsConditionChecker(const ChainstateManager& chainman, int bit) : m_chainman{chainman}, m_bit(bit) {}
-
-    int64_t BeginTime(const Consensus::Params& params) const override { return 0; }
-    int64_t EndTime(const Consensus::Params& params) const override { return std::numeric_limits<int64_t>::max(); }
-    int Period(const Consensus::Params& params) const override { return params.nMinerConfirmationWindow; }
-    int Threshold(const Consensus::Params& params) const override { return params.nRuleChangeActivationThreshold; }
-
-    bool Condition(const CBlockIndex* pindex, const Consensus::Params& params) const override
-    {
-        return pindex->nHeight >= params.MinBIP9WarningHeight &&
-               ((pindex->nVersion & VERSIONBITS_TOP_MASK) == VERSIONBITS_TOP_BITS) &&
-               ((pindex->nVersion >> m_bit) & 1) != 0 &&
-               ((m_chainman.m_versionbitscache.ComputeBlockVersion(pindex->pprev, params) >> m_bit) & 1) == 0;
-    }
-};
 
 static unsigned int GetBlockScriptFlags(const CBlockIndex& block_index, const ChainstateManager& chainman)
 {
@@ -2110,9 +2115,7 @@ static unsigned int GetBlockScriptFlags(const CBlockIndex& block_index, const Ch
     }
 
     // Enforce the DERSIG (BIP66) rule
-    if (DeploymentActiveAt(block_index, chainman, Consensus::DEPLOYMENT_DERSIG)) {
-        flags |= SCRIPT_VERIFY_DERSIG;
-    }
+  
 
     // Enforce CHECKLOCKTIMEVERIFY (BIP65)
     if (DeploymentActiveAt(block_index, chainman, Consensus::DEPLOYMENT_CLTV)) {
@@ -2360,12 +2363,27 @@ bool Chainstate::ConnectBlock(const CBlock& block, BlockValidationState& state, 
         {
             CAmount txfee = 0;
             TxValidationState tx_state;
-            if (!Consensus::CheckTxInputs(tx, tx_state, view, pindex->nHeight, txfee)) {
-                // Any transaction validation failure in ConnectBlock is a block consensus failure
-                state.Invalid(BlockValidationResult::BLOCK_CONSENSUS,
-                            tx_state.GetRejectReason(), tx_state.GetDebugMessage());
-                return error("%s: Consensus::CheckTxInputs: %s, %s", __func__, tx.GetHash().ToString(), state.ToString());
-            }
+         if (!Consensus::CheckTxInputs(tx, tx_state, view, pindex->nHeight, txfee)) {
+    state.Invalid(BlockValidationResult::BLOCK_CONSENSUS,
+                  tx_state.GetRejectReason(), tx_state.GetDebugMessage());
+    return error("%s: Consensus::CheckTxInputs: %s, %s", __func__, tx.GetHash().ToString(), state.ToString());
+}
+
+// 🟩 여기 추가
+//if (!CheckTokenMint(tx, tx_state)) {
+  //  state.Invalid(BlockValidationResult::BLOCK_CONSENSUS,
+    //              tx_state.GetRejectReason(), tx_state.GetDebugMessage());
+    //return error("%s: CheckTokenMint: %s, %s", __func__, tx.GetHash().ToString(), state.ToString());
+//}
+// 🟩 끝
+
+//if (!CheckTokenTransfer(tx, view, tx_state)) {
+  //  state.Invalid(BlockValidationResult::BLOCK_CONSENSUS,
+    //              tx_state.GetRejectReason(), tx_state.GetDebugMessage());
+   // return error("%s: CheckTokenTransfer: %s, %s", __func__, tx.GetHash().ToString(), state.ToString());
+//}
+
+
             nFees += txfee;
             if (!MoneyRange(nFees)) {
                 LogPrintf("ERROR: %s: accumulated fee in the block out of range.\n", __func__);
@@ -3623,77 +3641,97 @@ static bool CheckBlockHeader(const CBlockHeader& block, BlockValidationState& st
 
 bool CheckBlock(const CBlock& block, BlockValidationState& state, const Consensus::Params& consensusParams, bool fCheckPOW, bool fCheckMerkleRoot)
 {
-    // These are checks that are independent of context.
-
+    // 이 블록이 이미 검증되었다면 통과
     if (block.fChecked)
         return true;
 
-    // Check that the header is valid (particularly PoW).  This is mostly
-    // redundant with the call in AcceptBlockHeader.
+    // 헤더만 검사 (PoW 포함)
     if (!CheckBlockHeader(block, state, consensusParams, fCheckPOW))
         return false;
 
-    // Signet only: check block solution
+    // Signet 블록일 경우 서명 추가 검사
     if (consensusParams.signet_blocks && fCheckPOW && !CheckSignetBlockSolution(block, consensusParams)) {
         return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-signet-blksig", "signet block signature validation failure");
     }
 
-    // Check the merkle root.
+    // 머클루트 검사
     if (fCheckMerkleRoot) {
         bool mutated;
         uint256 hashMerkleRoot2 = BlockMerkleRoot(block, &mutated);
         if (block.hashMerkleRoot != hashMerkleRoot2)
             return state.Invalid(BlockValidationResult::BLOCK_MUTATED, "bad-txnmrklroot", "hashMerkleRoot mismatch");
-
-        // Check for merkle tree malleability (CVE-2012-2459): repeating sequences
-        // of transactions in a block without affecting the merkle root of a block,
-        // while still invalidating it.
         if (mutated)
             return state.Invalid(BlockValidationResult::BLOCK_MUTATED, "bad-txns-duplicate", "duplicate transaction");
     }
 
-    // All potential-corruption validation must be done before we do any
-    // transaction validation, as otherwise we may mark the header as invalid
-    // because we receive the wrong transactions for it.
-    // Note that witness malleability is checked in ContextualCheckBlock, so no
-    // checks that use witness data may be performed here.
+    // 블록 크기, weight, sigops 제한 설정
+    unsigned int max_block_size      = MAX_BLOCK_SERIALIZED_SIZE;
+    unsigned int max_block_weight    = MAX_BLOCK_WEIGHT;
+    unsigned int max_sigops_cost     = MAX_BLOCK_SIGOPS_COST;
 
-    // Size limits
-    if (block.vtx.empty() || block.vtx.size() * WITNESS_SCALE_FACTOR > MAX_BLOCK_WEIGHT || ::GetSerializeSize(block, PROTOCOL_VERSION | SERIALIZE_TRANSACTION_NO_WITNESS) * WITNESS_SCALE_FACTOR > MAX_BLOCK_WEIGHT)
-        return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-blk-length", "size limits failed");
+  // BTCBT 포크 이후 블록 크기 및 제한값 적용
+if (block.nVersion == 1 && block.nTime >= 1719900000 /* BTCBT 포크 블록 시간 기준 */) {
+    max_block_size   = consensusParams.btcbt_max_block_size;
+    max_block_weight = consensusParams.btcbt_max_block_size;  // BTCBT는 size == weight 가정
+    max_sigops_cost  = consensusParams.btcbt_max_block_sigops_cost;
+}
+
+
+    // 블록 크기 검사 (Serialize 기준)
+       // Size limits
+    if (::GetSerializeSize(block, PROTOCOL_VERSION) > MAX_BLOCK_SERIALIZED_SIZE) {
+        return state.Invalid(BlockValidationResult::BLOCK_SERIALIZATION, "bad-blk-length");
+    }
+
+    // Adaptive block weight 적용
+size_t mempool_tx_count = 0;
+if (g_node && g_node->chainman && g_node->chainman->ActiveChainstate().GetMempool() != nullptr) {
+    mempool_tx_count = g_node->chainman->ActiveChainstate().GetMempool()->size();
+}
+
+if (GetBlockWeight(block) > GetAdaptiveMaxBlockWeight(mempool_tx_count)) {
+    return state.Invalid(BlockValidationResult::BLOCK_WEIGHT, "bad-blk-weight-adaptive");
+}
 
     // First transaction must be coinbase, the rest must not be
-    if (block.vtx.empty() || !block.vtx[0]->IsCoinBase())
-        return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-cb-missing", "first tx is not coinbase");
-    for (unsigned int i = 1; i < block.vtx.size(); i++)
-        if (block.vtx[i]->IsCoinBase())
-            return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-cb-multiple", "more than one coinbase");
+    if (block.vtx.empty() || !block.vtx[0]->IsCoinBase()) {
+        return state.Invalid(BlockValidationResult::BLOCK_MUTATED, "bad-cb-missing");
+    }
 
-    // Check transactions
-    // Must check for duplicate inputs (see CVE-2018-17144)
+    for (size_t i = 1; i < block.vtx.size(); i++) {
+        if (block.vtx[i]->IsCoinBase()) {
+            return state.Invalid(BlockValidationResult::BLOCK_MUTATED, "bad-cb-multiple");
+        }
+    }
+
+
+    // Transaction 유효성 검사 (context-free)
     for (const auto& tx : block.vtx) {
         TxValidationState tx_state;
         if (!CheckTransaction(*tx, tx_state)) {
-            // CheckBlock() does context-free validation checks. The only
-            // possible failures are consensus failures.
             assert(tx_state.GetResult() == TxValidationResult::TX_CONSENSUS);
             return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, tx_state.GetRejectReason(),
-                                 strprintf("Transaction check failed (tx hash %s) %s", tx->GetHash().ToString(), tx_state.GetDebugMessage()));
+                strprintf("Transaction check failed (tx hash %s) %s", tx->GetHash().ToString(), tx_state.GetDebugMessage()));
         }
     }
-    unsigned int nSigOps = 0;
-    for (const auto& tx : block.vtx)
-    {
+
+    // SigOps 총량 계산
+    int64_t nSigOps = 0;
+    for (const auto& tx : block.vtx) {
         nSigOps += GetLegacySigOpCount(*tx);
     }
-    if (nSigOps * WITNESS_SCALE_FACTOR > MAX_BLOCK_SIGOPS_COST)
-        return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-blk-sigops", "out-of-bounds SigOpCount");
 
+    if (nSigOps * WITNESS_SCALE_FACTOR > max_sigops_cost) {
+        return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-blk-sigops", "sigops limit exceeded");
+    }
+
+    // POW & Merkle 루트 검증을 모두 마쳤을 경우 체크됨 표시
     if (fCheckPOW && fCheckMerkleRoot)
         block.fChecked = true;
 
     return true;
 }
+
 
 void ChainstateManager::UpdateUncommittedBlockStructures(CBlock& block, const CBlockIndex* pindexPrev) const
 {
@@ -3810,18 +3848,27 @@ static bool ContextualCheckBlockHeader(const CBlockHeader& block, BlockValidatio
  */
 static bool ContextualCheckBlock(const CBlock& block, BlockValidationState& state, const ChainstateManager& chainman, const CBlockIndex* pindexPrev)
 {
-    const int nHeight = pindexPrev == nullptr ? 0 : pindexPrev->nHeight + 1;
+    const int nHeight = pindexPrev ? pindexPrev->nHeight + 1 : 0;
 
     // Enforce BIP113 (Median Time Past).
     bool enforce_locktime_median_time_past{false};
     if (DeploymentActiveAfter(pindexPrev, chainman, Consensus::DEPLOYMENT_CSV)) {
-        assert(pindexPrev != nullptr);
         enforce_locktime_median_time_past = true;
     }
 
-    const int64_t nLockTimeCutoff{enforce_locktime_median_time_past ?
-                                      pindexPrev->GetMedianTimePast() :
-                                      block.GetBlockTime()};
+    const int64_t nLockTimeCutoff = enforce_locktime_median_time_past ?
+                                     pindexPrev->GetMedianTimePast() :
+                                     block.GetBlockTime();
+
+    // ✅ BTCBT 포크 이후에는 MTP 기준으로 블록 시간 체크
+    const auto& consensus = chainman.GetConsensus();
+    if (nHeight >= consensus.btcbt_fork_block_height) {
+        const int64_t medianTimePast = pindexPrev->GetMedianTimePast();
+        if (block.GetBlockTime() <= medianTimePast) {
+            return state.Invalid(BlockValidationResult::BLOCK_INVALID_HEADER, "btcbt-time-too-old",
+                                 strprintf("%s : block time %d <= MTP %d", __func__, block.GetBlockTime(), medianTimePast));
+        }
+    }
 
     // Check that all transactions are finalized
     for (const auto& tx : block.vtx) {
@@ -3829,7 +3876,6 @@ static bool ContextualCheckBlock(const CBlock& block, BlockValidationState& stat
             return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-txns-nonfinal", "non-final transaction");
         }
     }
-
     // Enforce rule that the coinbase starts with serialized block height
     if (DeploymentActiveAfter(pindexPrev, chainman, Consensus::DEPLOYMENT_HEIGHTINCB))
     {

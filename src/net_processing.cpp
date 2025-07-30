@@ -52,6 +52,7 @@
 #include <optional>
 #include <typeinfo>
 
+
 /** Headers download timeout.
  *  Timeout = base + per_header * (expected number of headers) */
 static constexpr auto HEADERS_DOWNLOAD_TIMEOUT_BASE = 15min;
@@ -1779,20 +1780,20 @@ bool PeerManagerImpl::MaybePunishNodeForBlock(NodeId nodeid, const BlockValidati
             }
             break;
         }
-    case BlockValidationResult::BLOCK_INVALID_HEADER:
+     case BlockValidationResult::BLOCK_INVALID_HEADER:
     case BlockValidationResult::BLOCK_CHECKPOINT:
     case BlockValidationResult::BLOCK_INVALID_PREV:
         if (peer) Misbehaving(*peer, 100, message);
         return true;
-    // Conflicting (but not necessarily invalid) data or different policy:
     case BlockValidationResult::BLOCK_MISSING_PREV:
-        // TODO: Handle this much more gracefully (10 DoS points is super arbitrary)
         if (peer) Misbehaving(*peer, 10, message);
         return true;
     case BlockValidationResult::BLOCK_RECENT_CONSENSUS_CHANGE:
     case BlockValidationResult::BLOCK_TIME_FUTURE:
+    case BlockValidationResult::BLOCK_SERIALIZATION:    // ✅ 추가
+    case BlockValidationResult::BLOCK_WEIGHT:            // ✅ 추가
         break;
-    }
+}
     if (message != "") {
         LogPrint(BCLog::NET, "peer=%d: %s\n", nodeid, message);
     }

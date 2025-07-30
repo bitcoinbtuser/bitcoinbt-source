@@ -401,6 +401,97 @@ public:
  * Regression test: intended for private networks only. Has minimal difficulty to ensure that
  * blocks can be found instantly.
  */
+class CBTCBTParams : public CChainParams {
+public:
+    CBTCBTParams() {
+        m_chain_type = ChainType::BTCBT;
+        consensus.signet_blocks = false;
+        consensus.signet_challenge.clear();
+
+               consensus.btcbt_fork_block_height = 903844;
+        consensus.btcbt_fork_block_hash = uint256S("00000000000000000019ec4cbd64f04c2f86b6dcd9e3972e30f49f72802c2936");
+        consensus.btcbt_block_interval = 5 * 60;
+        consensus.btcbt_halving_interval = 210000;
+        consensus.btcbt_max_block_size = 32'000'000;
+        consensus.btcbt_max_block_sigops_cost = 320000;
+
+        // ✅ ASERT 기준 anchor 설정
+        consensus.btcbt_asert_anchor_height = 903844;
+        consensus.btcbt_asert_anchor_hash = uint256S("00000000000000000019ec4cbd64f04c2f86b6dcd9e3972e30f49f72802c2936");
+
+
+        consensus.nSubsidyHalvingInterval = consensus.btcbt_halving_interval;
+        consensus.nPowTargetSpacing = consensus.btcbt_block_interval;
+        consensus.nPowTargetTimespan = consensus.btcbt_block_interval * 2016;
+        consensus.fPowAllowMinDifficultyBlocks = false;
+        consensus.fPowNoRetargeting = false;
+        consensus.powLimit = uint256S("00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+
+        consensus.BIP34Height = 227931;
+        consensus.BIP34Hash = uint256S("00000000000002d01c5a6e2cbd2f3b98ae16c5e12a9dc9e3bd2963e4b1f7f5b4");
+        consensus.BIP65Height = 388381;
+        consensus.BIP66Height = 363725;
+        consensus.CSVHeight = 419328;
+        consensus.SegwitHeight = 481824;
+        consensus.MinBIP9WarningHeight = 0;
+
+        consensus.nRuleChangeActivationThreshold = 1916;
+        consensus.nMinerConfirmationWindow = 2016;
+
+                consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY] = {
+            .bit = 28,
+            .nStartTime = Consensus::BIP9Deployment::NEVER_ACTIVE,
+            .nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT,
+            .min_activation_height = 0,
+        };
+
+        // ✅ Taproot + Schnorr 활성화
+        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].bit = 2;
+        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
+        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
+        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].min_activation_height = consensus.btcbt_fork_block_height;
+
+    
+        consensus.nMinimumChainWork = uint256{};
+        consensus.defaultAssumeValid = uint256{};
+
+        pchMessageStart[0] = 0xf9;
+        pchMessageStart[1] = 0xbe;
+        pchMessageStart[2] = 0xb4;
+        pchMessageStart[3] = 0xd9;
+        nDefaultPort = 8333;
+        nPruneAfterHeight = 100000;
+        m_assumed_blockchain_size = 0;
+        m_assumed_chain_state_size = 0;
+
+        genesis = CreateGenesisBlock(1231006505, 2083236893, 0x1d00ffff, 1, 50 * COIN);
+        consensus.hashGenesisBlock = genesis.GetHash();
+        assert(consensus.hashGenesisBlock == uint256S("0x000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f"));
+        assert(genesis.hashMerkleRoot == uint256S("0x4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b"));
+
+        base58Prefixes[PUBKEY_ADDRESS] = std::vector<unsigned char>(1,0);
+        base58Prefixes[SCRIPT_ADDRESS] = std::vector<unsigned char>(1,5);
+        base58Prefixes[SECRET_KEY]     = std::vector<unsigned char>(1,128);
+        base58Prefixes[EXT_PUBLIC_KEY] = {0x04, 0x88, 0xB2, 0x1E};
+        base58Prefixes[EXT_SECRET_KEY] = {0x04, 0x88, 0xAD, 0xE4};
+        bech32_hrp = "btcbt";
+
+        vSeeds.clear();
+        vFixedSeeds.clear();
+        fDefaultConsistencyChecks = false;
+        m_is_mockable_chain = false;
+
+        checkpointData = {
+            {
+                {0, consensus.hashGenesisBlock}
+            }
+        };
+
+        m_assumeutxo_data = {};  // 향후 업데이트
+        chainTxData = {0, 0, 0.0};
+    }
+};
+
 class CRegTestParams : public CChainParams
 {
 public:
@@ -542,3 +633,8 @@ std::unique_ptr<const CChainParams> CChainParams::TestNet()
 {
     return std::make_unique<const CTestNetParams>();
 }
+std::unique_ptr<const CChainParams> CChainParams::BTCBT()
+{
+    return std::make_unique<const CBTCBTParams>();
+}
+

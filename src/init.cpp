@@ -87,6 +87,7 @@
 #include <util/time.h>
 #include <util/translation.h>
 #include <validation.h>
+#include <node/context.cpp>
 #include <validationinterface.h>
 #include <walletinitinterface.h>
 
@@ -241,6 +242,7 @@ void Shutdown(NodeContext& node)
     static Mutex g_shutdown_mutex;
     TRY_LOCK(g_shutdown_mutex, lock_shutdown);
     if (!lock_shutdown) return;
+    LogPrintf("BitcoinBT stopping\n");  // ← 여기에 추가
     LogPrintf("%s: In progress...\n", __func__);
     Assert(node.args);
 
@@ -782,7 +784,7 @@ void InitLogging(const ArgsManager& args)
 }
 
 namespace { // Variables internal to initialization process only
-
+static node::NodeContext global_node_context;  
 int nMaxConnections;
 int nUserMaxConnections;
 int nFD;
@@ -1072,6 +1074,7 @@ bool AppInitInterfaces(NodeContext& node)
 
 bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
 {
+ node::g_node = &node;
     const ArgsManager& args = *Assert(node.args);
     const CChainParams& chainparams = Params();
 
@@ -1085,12 +1088,14 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
         // Detailed error printed inside CreatePidFile().
         return false;
     }
-    if (!init::StartLogging(args)) {
+       if (!init::StartLogging(args)) {
         // Detailed error printed inside StartLogging().
         return false;
     }
 
+    LogPrintf("BitcoinBT starting\n");  // ← 여기에 추가
     LogPrintf("Using at most %i automatic connections (%i file descriptors available)\n", nMaxConnections, nFD);
+
 
     // Warn about relative -datadir path.
     if (args.IsArgSet("-datadir") && !args.GetPathArg("-datadir").is_absolute()) {
