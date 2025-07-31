@@ -208,4 +208,7 @@ void RegenerateCommitments(CBlock& block, ChainstateManager& chainman);
 void ApplyArgsManOptions(const ArgsManager& gArgs, BlockAssembler::Options& options);
 } // namespace node
 
+int GetAdaptiveMaxBlockWeight(size_t mempool_tx_count);
+
+
 #endif // BITCOIN_NODE_MINER_H
