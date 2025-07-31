@@ -3,67 +3,63 @@ BitcoinBT integration/staging tree
 
 https://bitcoinbt.xyz
 
-For an immediately usable, binary version of the BitcoinBT software, see:  
+For an immediately usable, binary version of the BitcoinBT software, visit:  
 ➡️ https://github.com/bitcoinbtuser/bitcoinbt-source/releases
 
 What is BitcoinBT?
 ------------------
 
-**BitcoinBT (BTCBT)** is a full-node implementation based on **Bitcoin Core v26**, designed as a **legitimate hard fork of Bitcoin** at block height **903,844**. It connects to the BitcoinBT peer-to-peer network to validate blocks and transactions and includes an optional wallet and GUI interface.
+**BitcoinBT (BTCBT)** is a full-node implementation based on **Bitcoin Core v26**, and a **legitimate, consensus-compatible hard fork of Bitcoin**. The chain splits at **block height 903,844** (July 3, 2025), inheriting all prior Bitcoin history up to that point.
 
-BitcoinBT improves scalability and programmability while preserving compatibility with Bitcoin infrastructure.
+BitcoinBT introduces technical enhancements focused on scalability and efficiency—while preserving full compatibility with existing global infrastructure such as mining pools, explorers, and wallets.
 
 ### ✅ Key Features
 
 - ⏱ **5-minute block intervals**
-- 🎁 **Special genesis reward: 2,000,000 BTCBT**
-- 📦 **Adaptive Block Size (4MB → 32MB, mempool-based)**
-- 🔐 **Schnorr signatures + Taproot + MuSig2 (multi-signature)**
-- ⚡ **SegWit-enabled and Lightning Network compatible**
-- 🧱 **ASERT difficulty adjustment algorithm**
-- 🔒 **Strict Bitcoin consensus: No CashTokens, No AI, No experimental forks**
-- 🌍 **Global mining pool compatibility (SHA-256d standard PoW)**
+- 🎁 **Special premined reward: 2,000,000 BTCBT**
+- 📦 **Adaptive Block Size**  
+  (4MB ~ 32MB, automatically adjusted based on mempool size)
+- 🔐 **Taproot + Schnorr + MuSig2**  
+  (next-gen multi-signature support)
+- ⚡ **SegWit enabled / Lightning Network compatible**
+- 📉 **ASERT Difficulty Adjustment Algorithm**  
+  (used by Bitcoin Cash and other next-gen chains)
+- 🧱 **Preserves original Bitcoin consensus**  
+  ❌ No CashTokens  
+  ❌ No AI  
+  ❌ No non-standard opcode forks
+- 🌍 **Globally compatible with mining pools, wallets, and explorers**  
+  (SHA-256d PoW standard maintained)
 
-Further information is available in the [doc folder](/doc).
+> BitcoinBT delivers real-world improvements without sacrificing decentralization or compatibility.
+
+Documentation
+-------------
+
+See the [doc folder](/doc) for technical guides, configuration details, and developer documentation.
 
 License
 -------
 
-BitcoinBT is released under the terms of the MIT license.  
-See [COPYING](COPYING) or https://opensource.org/licenses/MIT for more details.
+Released under the terms of the **MIT license**.  
+See [COPYING](COPYING) or https://opensource.org/licenses/MIT.
 
 Development Process
 -------------------
 
-The `main` branch is the actively maintained development branch.  
-Official releases are tagged from it after stability and regression testing.
+The `main` branch is the actively maintained development line.  
+Stable releases are tagged and published after full testing.
 
-All changes—including consensus rules, wallet behavior, and network logic—are maintained in this unified repository.
+All protocol rules, wallet behavior, networking, and consensus logic live in this repository.
 
-- 📄 Contribution guidelines: [CONTRIBUTING.md](CONTRIBUTING.md)
-- 🛠 Developer notes: [doc/developer-notes.md](doc/developer-notes.md)
+- 📄 [CONTRIBUTING.md](CONTRIBUTING.md) — Contribution process
+- 🛠 [doc/developer-notes.md](doc/developer-notes.md) — Developer reference
 
 Testing
 -------
 
-Testing is a core part of BitcoinBT’s development.
-
 ### 🔁 Automated Testing
 
-- Use `make check` to run unit and integration tests.
-- See [src/test/README.md](src/test/README.md) for full instructions.
-
-### 🧪 Manual QA
-
-- Large or risky changes must be tested by independent reviewers.
-- Pull requests should include a test plan if not self-evident.
-
-Translations
-------------
-
-BitcoinBT supports translations via [Transifex](https://www.transifex.com/bitcoin/bitcoin/).  
-**⚠️ Note:** Do not submit translations via GitHub pull request—translation updates are synced separately.
-
----
-
-BitcoinBT is the next evolution of Bitcoin hard forks, balancing innovation and global compatibility.
+- Build and run tests with:
+  ```bash
+  make check
