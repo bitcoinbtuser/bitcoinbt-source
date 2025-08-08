@@ -31,17 +31,18 @@
 
 // 👉 아래에 함수 정의 삽입
 // Adaptive Block Size: 동적 블록 크기 계산 함수
-int GetAdaptiveMaxBlockWeight(size_t mempool_tx_count)
+int GetAdaptiveMaxBlockWeight(size_t mempool_tx_count, int cur_height, const Consensus::Params& consensus)
 {
-    const int min_weight = 4000000;     // 4MB
-    const int max_weight = 32000000;    // 32MB
+    // ─── 포크 전/후 하한 분기 ───
+    const bool post_fork = (cur_height >= consensus.btcbt_fork_block_height);
+    const int min_weight = post_fork ? 8000000 : 4000000;   // 포크 이후 최소 8MB(선택)
+    const int max_weight = 32000000;                        // 32MB
 
     if (mempool_tx_count < 1000) return min_weight;
     if (mempool_tx_count > 100000) return max_weight;
 
     return min_weight + ((mempool_tx_count * (max_weight - min_weight)) / 100000);
 }
-
 using node::g_node;
 
 namespace node {
@@ -87,7 +88,7 @@ void ApplyArgsManOptions(const ArgsManager& args, BlockAssembler::Options& optio
     }
 }
 
-static BlockAssembler::Options ConfiguredOptions(const CTxMemPool* mempool)
+static BlockAssembler::Options ConfiguredOptions(const CTxMemPool* mempool, const Chainstate& chainstate)
 {
     BlockAssembler::Options options;
     ApplyArgsManOptions(gArgs, options);
@@ -97,12 +98,16 @@ static BlockAssembler::Options ConfiguredOptions(const CTxMemPool* mempool)
         mempool_tx_count = mempool->size();
     }
 
-    options.nBlockMaxWeight = GetAdaptiveMaxBlockWeight(mempool_tx_count);
+    const CBlockIndex* tip = chainstate.m_chain.Tip();
+    const int cur_height = tip ? (tip->nHeight + 1) : 0;
+    const auto& consensus = chainstate.m_chainman.GetParams().GetConsensus();
+
+    options.nBlockMaxWeight = GetAdaptiveMaxBlockWeight(mempool_tx_count, cur_height, consensus);
     return ClampOptions(options);
 }
 
 BlockAssembler::BlockAssembler(Chainstate& chainstate, const CTxMemPool* mempool)
-    : BlockAssembler(chainstate, mempool, ConfiguredOptions(mempool)) {}
+    : BlockAssembler(chainstate, mempool, ConfiguredOptions(mempool, chainstate)) {}
 
 void BlockAssembler::resetBlock()
 {
@@ -206,7 +211,16 @@ void BlockAssembler::onlyUnconfirmed(CTxMemPool::setEntries& testSet)
 bool BlockAssembler::TestPackage(uint64_t packageSize, int64_t packageSigOpsCost) const
 {
     if (nBlockWeight + WITNESS_SCALE_FACTOR * packageSize >= m_options.nBlockMaxWeight) return false;
-    if (nBlockSigOpsCost + packageSigOpsCost >= MAX_BLOCK_SIGOPS_COST) return false;
+
+    const auto& consensus = m_chainstate.m_chainman.GetParams().GetConsensus();
+    const int cur_height = nHeight;
+    const int64_t fork_sigops = 200000;
+    const int64_t sigops_limit = (cur_height >= consensus.btcbt_fork_block_height)
+                                 ? fork_sigops
+                                 : MAX_BLOCK_SIGOPS_COST;
+
+    const int64_t cur_sigops = static_cast<int64_t>(nBlockSigOpsCost);
+    if (cur_sigops + packageSigOpsCost >= sigops_limit) return false;
     return true;
 }
 

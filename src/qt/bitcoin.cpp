@@ -219,7 +219,7 @@ void DebugMessageHandler(QtMsgType type, const QMessageLogContext& context, cons
 }
 
 static int qt_argc = 1;
-static const char* qt_argv = "bitcoin-qt";
+static const char* qt_argv = "bitcoinbt-qt";
 
 BitcoinApplication::BitcoinApplication()
     : QApplication(qt_argc, const_cast<char**>(&qt_argv))
@@ -553,9 +553,10 @@ int GuiMain(int argc, char* argv[])
     /// 3. Application identification
     // must be set before OptionsModel is initialized or translations are loaded,
     // as it is used to locate QSettings
-    QApplication::setOrganizationName(QAPP_ORG_NAME);
-    QApplication::setOrganizationDomain(QAPP_ORG_DOMAIN);
-    QApplication::setApplicationName(QAPP_APP_NAME_DEFAULT);
+    QApplication::setOrganizationName("BitcoinBT Project");
+QApplication::setOrganizationDomain("bitcoinbt.xyz");
+QApplication::setApplicationName("BitcoinBT Core");
+
 
     /// 4. Initialization of translations, so that intro dialog is in user's language
     // Now that QSettings are accessible, initialize translations

@@ -2869,11 +2869,41 @@ return RPCHelpMan{
     };
 }
 
+static RPCHelpMan getbtcbtinfo()
+{
+    return RPCHelpMan{
+        "getbtcbtinfo",
+        "Returns information about the BitcoinBT blockchain and identity.\n",
+        {},
+        RPCResult{
+            RPCResult::Type::OBJ, "", "",
+            {
+                {RPCResult::Type::STR, "name", "Name of the chain"},
+                {RPCResult::Type::STR, "version", "Version of BTCBT client"},
+                {RPCResult::Type::STR, "homepage", "Official website"},
+                {RPCResult::Type::STR, "contact", "Contact email or info"},
+                {RPCResult::Type::STR, "license", "Software license"},
+            }},
+        RPCExamples{
+            HelpExampleCli("getbtcbtinfo", "") + HelpExampleRpc("getbtcbtinfo", "")
+        },
+        [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue {
+            UniValue result(UniValue::VOBJ);
+            result.pushKV("name", "BitcoinBT");
+            result.pushKV("version", "3.0.0");
+            result.pushKV("homepage", "https://bitcoinbt.xyz");
+            result.pushKV("contact", "info@bitcoinbt.xyz");
+            result.pushKV("license", "MIT");
+            return result;
+        }
+    };
+}
 
 void RegisterBlockchainRPCCommands(CRPCTable& t)
 {
     static const CRPCCommand commands[]{
         {"blockchain", &getblockchaininfo},
+    {"blockchain", &getbtcbtinfo},
         {"blockchain", &getchaintxstats},
         {"blockchain", &getblockstats},
         {"blockchain", &getbestblockhash},

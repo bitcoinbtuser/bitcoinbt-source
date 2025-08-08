@@ -10,6 +10,7 @@
 #include <primitives/block.h>
 #include <uint256.h>
 #include <util/check.h>
+#include <logging.h>
 
 unsigned int GetNextWorkRequired(const CBlockIndex* pindexLast, const CBlockHeader* pblock, const Consensus::Params& params)
 {
@@ -65,8 +66,12 @@ unsigned int CalculateNextWorkRequired(const CBlockIndex* pindexLast, int64_t nF
         }
 
         // ⛔ 실패 시 fallback (안전장치)
-        if (!pindex_ref || pindex_ref->GetBlockHash() != params.btcbt_asert_anchor_hash)
-            return powLimit.GetCompact();
+        // ⛔ 앵커를 못 찾으면: 직전 난이도 유지 + 경고 로그 (보안상 더 안전)
+if (!pindex_ref || pindex_ref->GetBlockHash() != params.btcbt_asert_anchor_hash) {
+    LogPrintf("[ASERT] anchor not found or mismatched (height=%d). Keep last nBits=%08x\n",
+              pindexLast->nHeight, pindexLast->nBits);
+    return pindexLast->nBits;
+}
 
         int64_t time_diff = pindexLast->GetBlockTime() - pindex_ref->GetBlockTime();
         int64_t height_diff = pindexLast->nHeight - pindex_ref->nHeight;

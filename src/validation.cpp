@@ -1,5 +1,5 @@
 // Copyright (c) 2009-2010 Satoshi Nakamoto
-// Copyright (c) 2009-2022 The Bitcoin Core developers
+// Copyright (c) 2009-2022 The Bitcoin Core hard Fork BitcoinBT(2025)
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -82,7 +82,6 @@
 
 #include <serialize.h>
 using node::g_node;
-int GetAdaptiveMaxBlockWeight(size_t mempool_tx_count);
 
 using kernel::CCoinsStats;
 using kernel::CoinStatsHashType;
@@ -3683,15 +3682,10 @@ if (block.nVersion == 1 && block.nTime >= 1719900000 /* BTCBT 포크 블록 시�
         return state.Invalid(BlockValidationResult::BLOCK_SERIALIZATION, "bad-blk-length");
     }
 
-    // Adaptive block weight 적용
-size_t mempool_tx_count = 0;
-if (g_node && g_node->chainman && g_node->chainman->ActiveChainstate().GetMempool() != nullptr) {
-    mempool_tx_count = g_node->chainman->ActiveChainstate().GetMempool()->size();
-}
+    // (Removed) mempool 기반 Adaptive weight 검사는 합의(Consensus) 리스크가 있어 제거
 
-if (GetBlockWeight(block) > GetAdaptiveMaxBlockWeight(mempool_tx_count)) {
-    return state.Invalid(BlockValidationResult::BLOCK_WEIGHT, "bad-blk-weight-adaptive");
-}
+
+    // First transaction must be coinbase, the rest must not be
 
     // First transaction must be coinbase, the rest must not be
     if (block.vtx.empty() || !block.vtx[0]->IsCoinBase()) {
