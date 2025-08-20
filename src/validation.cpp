@@ -853,15 +853,9 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
 
 // [✅ 새 코드 삽입]
 int64_t maxTxSigOps = MAX_STANDARD_TX_SIGOPS_COST;
-if (m_active_chainstate.m_chain.Height() >= m_active_chainstate.m_chainman.GetConsensus().btcbt_fork_block_height) {
-    maxTxSigOps = m_active_chainstate.m_chainman.GetConsensus().btcbt_max_block_sigops_cost;
-}
-
 if (nSigOpsCost > maxTxSigOps) {
-    return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "bad-txns-too-many-sigops",
-                         strprintf("%d > %d", nSigOpsCost, maxTxSigOps));
+    return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "bad-tx-sigops");
 }
-
 
     // No individual transactions are allowed below the min relay feerate except from disconnected blocks.
     // This requirement, unlike CheckFeeRate, cannot be bypassed using m_package_feerates because,
@@ -876,14 +870,11 @@ if (nSigOpsCost > maxTxSigOps) {
     // blocks and transactions in a package. Package transactions will be checked using package
     // feerate later.
     // BTCBT 포크 이후에만 적용할 수 있는 트랜잭션 정책들
-    if (m_active_chainstate.m_chain.Height() + 1 >= m_active_chainstate.m_chainman.GetConsensus().btcbt_fork_block_height) {
-        // 예: BTCBT는 포크 이후 최소 수수료를 더 낮게 허용할 수 있음
-        const CAmount btcbt_min_fee = /* 예시: */ 1000; // Satoshi per KB (또는 원하는 값)
-        if (ws.m_modified_fees < CFeeRate(btcbt_min_fee).GetFee(ws.m_vsize)) {
-            return state.Invalid(TxValidationResult::TX_MEMPOOL_POLICY, "btcbt-low-fee",
-                                 strprintf("fee %d below btcbt min %d", ws.m_modified_fees, CFeeRate(btcbt_min_fee).GetFee(ws.m_vsize)));
-        }
+        if (m_active_chainstate.m_chain.Height() + 1 >= m_active_chainstate.m_chainman.GetConsensus().btcbt_fork_block_height) {
+        // 정책 실험 코드 보류: 실제 사용 시 설정값으로 활성화
+        // (현재는 사용 안 하므로 경고를 피하기 위해 변수 선언 제거)
     }
+
 
     if (!bypass_limits && !args.m_package_feerates && !CheckFeeRate(ws.m_vsize, ws.m_modified_fees, state)) return false;
 
@@ -2408,11 +2399,13 @@ bool Chainstate::ConnectBlock(const CBlock& block, BlockValidationState& state, 
         // * p2sh (when P2SH enabled in flags and excludes coinbase)
         // * witness (when witness enabled in flags and excludes coinbase)
         nSigOpsCost += GetTransactionSigOpCost(tx, view, flags);
-        if (nSigOpsCost > MAX_BLOCK_SIGOPS_COST) {
-            LogPrintf("ERROR: ConnectBlock(): too many sigops\n");
-            return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-blk-sigops");
-        }
-
+       int64_t max_block_sigops = (pindex->nHeight >= params.GetConsensus().btcbt_fork_block_height)
+                           ? params.GetConsensus().btcbt_max_block_sigops_cost
+                           : MAX_BLOCK_SIGOPS_COST;
+if (nSigOpsCost > max_block_sigops) {
+    LogPrintf("ERROR: ConnectBlock(): too many sigops\n");
+    return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-blk-sigops");
+}
         if (!tx.IsCoinBase())
         {
             std::vector<CScriptCheck> vChecks;
@@ -3663,24 +3656,20 @@ bool CheckBlock(const CBlock& block, BlockValidationState& state, const Consensu
             return state.Invalid(BlockValidationResult::BLOCK_MUTATED, "bad-txns-duplicate", "duplicate transaction");
     }
 
-    // 블록 크기, weight, sigops 제한 설정
-    unsigned int max_block_size      = MAX_BLOCK_SERIALIZED_SIZE;
-    unsigned int max_block_weight    = MAX_BLOCK_WEIGHT;
-    unsigned int max_sigops_cost     = MAX_BLOCK_SIGOPS_COST;
-
+  
   // BTCBT 포크 이후 블록 크기 및 제한값 적용
-if (block.nVersion == 1 && block.nTime >= 1719900000 /* BTCBT 포크 블록 시간 기준 */) {
-    max_block_size   = consensusParams.btcbt_max_block_size;
-    max_block_weight = consensusParams.btcbt_max_block_size;  // BTCBT는 size == weight 가정
-    max_sigops_cost  = consensusParams.btcbt_max_block_sigops_cost;
-}
+//if (block.nVersion == 1 && block.nTime >= 1719900000 /* BTCBT 포크 블록 시간 기준 */) {
+  //  max_block_size   = consensusParams.btcbt_max_block_size;
+   // max_block_weight = consensusParams.btcbt_max_block_size;  // BTCBT는 size == weight 가정
+ //   max_sigops_cost  = consensusParams.btcbt_max_block_sigops_cost;
+//}
 
 
     // 블록 크기 검사 (Serialize 기준)
        // Size limits
-    if (::GetSerializeSize(block, PROTOCOL_VERSION) > MAX_BLOCK_SERIALIZED_SIZE) {
-        return state.Invalid(BlockValidationResult::BLOCK_SERIALIZATION, "bad-blk-length");
-    }
+ // if (::GetSerializeSize(block, PROTOCOL_VERSION) > max_block_size) {
+ //   return state.Invalid(BlockValidationResult::BLOCK_SERIALIZATION, "bad-blk-length");
+//}
 
     // (Removed) mempool 기반 Adaptive weight 검사는 합의(Consensus) 리스크가 있어 제거
 
@@ -3715,9 +3704,7 @@ if (block.nVersion == 1 && block.nTime >= 1719900000 /* BTCBT 포크 블록 시�
         nSigOps += GetLegacySigOpCount(*tx);
     }
 
-    if (nSigOps * WITNESS_SCALE_FACTOR > max_sigops_cost) {
-        return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-blk-sigops", "sigops limit exceeded");
-    }
+    
 
     // POW & Merkle 루트 검증을 모두 마쳤을 경우 체크됨 표시
     if (fCheckPOW && fCheckMerkleRoot)
@@ -3917,17 +3904,21 @@ static bool ContextualCheckBlock(const CBlock& block, BlockValidationState& stat
         }
     }
 
-    // After the coinbase witness reserved value and commitment are verified,
+        // After the coinbase witness reserved value and commitment are verified,
     // we can check if the block weight passes (before we've checked the
     // coinbase witness, it would be possible for the weight to be too
     // large by filling up the coinbase witness, which doesn't change
     // the block hash, so we couldn't mark the block as permanently
     // failed).
-    if (GetBlockWeight(block) > MAX_BLOCK_WEIGHT) {
-        return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-blk-weight", strprintf("%s : weight limit failed", __func__));
-    }
-
-    return true;
+const int next_height = pindexPrev->nHeight + 1;
+unsigned int max_block_weight = (next_height >= chainman.GetConsensus().btcbt_fork_block_height)
+                                ? chainman.GetConsensus().btcbt_max_block_size   // BTCBT는 size==weight 가정
+                                : MAX_BLOCK_WEIGHT;
+if (GetBlockWeight(block) > max_block_weight) {
+    return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-blk-weight",
+                         strprintf("%s : weight limit failed", __func__));
+}
+return true;
 }
 
 bool ChainstateManager::AcceptBlockHeader(const CBlockHeader& block, BlockValidationState& state, CBlockIndex** ppindex, bool min_pow_checked)

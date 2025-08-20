@@ -408,8 +408,8 @@ public:
         consensus.signet_blocks = false;
         consensus.signet_challenge.clear();
 
-               consensus.btcbt_fork_block_height = 903844;
-        consensus.btcbt_fork_block_hash = uint256S("00000000000000000019ec4cbd64f04c2f86b6dcd9e3972e30f49f72802c2936");
+        consensus.btcbt_fork_block_height = 903844;
+consensus.btcbt_fork_block_hash   = uint256S("000000000000000000015f4b69129c42068a384d79b7693efd426a369b865fa9");
         consensus.btcbt_block_interval = 5 * 60;
         consensus.btcbt_halving_interval = 210000;
         consensus.btcbt_max_block_size = 32'000'000;
@@ -417,12 +417,17 @@ public:
 
         // ✅ ASERT 기준 anchor 설정
         consensus.btcbt_asert_anchor_height = 903844;
-        consensus.btcbt_asert_anchor_hash = uint256S("00000000000000000019ec4cbd64f04c2f86b6dcd9e3972e30f49f72802c2936");
+consensus.btcbt_asert_anchor_hash   = uint256S("000000000000000000015f4b69129c42068a384d79b7693efd426a369b865fa9");
+consensus.btcbt_asert_anchor_bits   = 0x17026816; // Block 903,844 nBits
 
 
-        consensus.nSubsidyHalvingInterval = consensus.btcbt_halving_interval;
-        consensus.nPowTargetSpacing = consensus.btcbt_block_interval;
-        consensus.nPowTargetTimespan = consensus.btcbt_block_interval * 2016;
+       // 프리포크(비트코인 구간) 기본값은 원래 값 유지
+consensus.nSubsidyHalvingInterval = 210000;               // 그대로 OK
+consensus.nPowTargetSpacing       = 10 * 60;              // 10분
+consensus.nPowTargetTimespan      = 14 * 24 * 60 * 60;    // 2주
+
+// 포크 이후 규칙은 별도 btcbt_*로 이미 존재 (pow.cpp가 분기해 사용)
+consensus.btcbt_block_interval    = 5 * 60;               // 이미 설정됨
         consensus.fPowAllowMinDifficultyBlocks = false;
         consensus.fPowNoRetargeting = false;
         consensus.powLimit = uint256S("00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
@@ -455,11 +460,12 @@ public:
         consensus.nMinimumChainWork = uint256{};
         consensus.defaultAssumeValid = uint256{};
 
+        // 임포트 전용 빌드: BTC blk*.dat 스캔을 위해 BTC 매직 사용
         pchMessageStart[0] = 0xf9;
         pchMessageStart[1] = 0xbe;
         pchMessageStart[2] = 0xb4;
         pchMessageStart[3] = 0xd9;
-        nDefaultPort = 8333;
+        nDefaultPort = 8333; // 포트는 임포트에 영향 없음
         nPruneAfterHeight = 100000;
         m_assumed_blockchain_size = 0;
         m_assumed_chain_state_size = 0;

@@ -93,8 +93,10 @@ struct Params {
     int btcbt_max_block_sigops_cost{0};
 
     // ASERT 난이도 조정 기준 블록 (anchor)
-    int btcbt_asert_anchor_height{0};
-    uint256 btcbt_asert_anchor_hash;
+   int btcbt_asert_anchor_height{0};
+uint256 btcbt_asert_anchor_hash;
+// ↓↓↓ 여기에 한 줄 추가
+unsigned int btcbt_asert_anchor_bits{0};   // 앵커 난이도(bits). 0이면 ASERT 비활성
 
     // Signet (if used)
     bool signet_blocks{false};

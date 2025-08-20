@@ -19,6 +19,8 @@ std::string ChainTypeToString(ChainType chain)
         return "signet";
     case ChainType::REGTEST:
         return "regtest";
+    case ChainType::BTCBT:                 // ⬅️ 추가
+        return "btcbt";                    // ⬅️ 추가
     }
     assert(false);
 }
@@ -33,6 +35,8 @@ std::optional<ChainType> ChainTypeFromString(std::string_view chain)
         return ChainType::SIGNET;
     } else if (chain == "regtest") {
         return ChainType::REGTEST;
+    } else if (chain == "btcbt") {         // ⬅️ 추가
+        return ChainType::BTCBT;           // ⬅️ 추가
     } else {
         return std::nullopt;
     }
