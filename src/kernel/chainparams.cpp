@@ -144,8 +144,9 @@ public:
         base58Prefixes[PUBKEY_ADDRESS] = std::vector<unsigned char>(1,0);
         base58Prefixes[SCRIPT_ADDRESS] = std::vector<unsigned char>(1,5);
         base58Prefixes[SECRET_KEY] =     std::vector<unsigned char>(1,128);
-        base58Prefixes[EXT_PUBLIC_KEY] = {0x04, 0x88, 0xB2, 0x1E};
-        base58Prefixes[EXT_SECRET_KEY] = {0x04, 0x88, 0xAD, 0xE4};
+        base58Prefixes[EXT_PUBLIC_KEY] = std::vector<unsigned char>{0x04, 0x88, 0xB2, 0x1E};
+        base58Prefixes[EXT_SECRET_KEY] = std::vector<unsigned char>{0x04, 0x88, 0xAD, 0xE4};
+
 
         bech32_hrp = "bc";
 
@@ -250,8 +251,9 @@ public:
         base58Prefixes[PUBKEY_ADDRESS] = std::vector<unsigned char>(1,111);
         base58Prefixes[SCRIPT_ADDRESS] = std::vector<unsigned char>(1,196);
         base58Prefixes[SECRET_KEY] =     std::vector<unsigned char>(1,239);
-        base58Prefixes[EXT_PUBLIC_KEY] = {0x04, 0x35, 0x87, 0xCF};
-        base58Prefixes[EXT_SECRET_KEY] = {0x04, 0x35, 0x83, 0x94};
+               base58Prefixes[EXT_PUBLIC_KEY] = std::vector<unsigned char>{0x04, 0x35, 0x87, 0xCF};
+        base58Prefixes[EXT_SECRET_KEY] = std::vector<unsigned char>{0x04, 0x35, 0x83, 0x94};
+
 
         bech32_hrp = "tb";
 
@@ -387,8 +389,9 @@ public:
         base58Prefixes[PUBKEY_ADDRESS] = std::vector<unsigned char>(1,111);
         base58Prefixes[SCRIPT_ADDRESS] = std::vector<unsigned char>(1,196);
         base58Prefixes[SECRET_KEY] =     std::vector<unsigned char>(1,239);
-        base58Prefixes[EXT_PUBLIC_KEY] = {0x04, 0x35, 0x87, 0xCF};
-        base58Prefixes[EXT_SECRET_KEY] = {0x04, 0x35, 0x83, 0x94};
+              base58Prefixes[EXT_PUBLIC_KEY] = std::vector<unsigned char>{0x04, 0x35, 0x87, 0xCF};
+        base58Prefixes[EXT_SECRET_KEY] = std::vector<unsigned char>{0x04, 0x35, 0x83, 0x94};
+
 
         bech32_hrp = "tb";
 
@@ -403,6 +406,7 @@ public:
  */
 class CBTCBTParams : public CChainParams {
 public:
+ std::array<uint8_t,4> DiskMagic() const;
     CBTCBTParams() {
         m_chain_type = ChainType::BTCBT;
         consensus.signet_blocks = false;
@@ -478,8 +482,9 @@ consensus.btcbt_block_interval    = 5 * 60;               // 이미 설정됨
         base58Prefixes[PUBKEY_ADDRESS] = std::vector<unsigned char>(1,0);
         base58Prefixes[SCRIPT_ADDRESS] = std::vector<unsigned char>(1,5);
         base58Prefixes[SECRET_KEY]     = std::vector<unsigned char>(1,128);
-        base58Prefixes[EXT_PUBLIC_KEY] = {0x04, 0x88, 0xB2, 0x1E};
-        base58Prefixes[EXT_SECRET_KEY] = {0x04, 0x88, 0xAD, 0xE4};
+                base58Prefixes[EXT_PUBLIC_KEY] = std::vector<unsigned char>{0x04, 0x88, 0xB2, 0x1E};
+        base58Prefixes[EXT_SECRET_KEY] = std::vector<unsigned char>{0x04, 0x88, 0xAD, 0xE4};
+
         bech32_hrp = "btcbt";
 
         vSeeds.clear();
@@ -613,8 +618,9 @@ public:
         base58Prefixes[PUBKEY_ADDRESS] = std::vector<unsigned char>(1,111);
         base58Prefixes[SCRIPT_ADDRESS] = std::vector<unsigned char>(1,196);
         base58Prefixes[SECRET_KEY] =     std::vector<unsigned char>(1,239);
-        base58Prefixes[EXT_PUBLIC_KEY] = {0x04, 0x35, 0x87, 0xCF};
-        base58Prefixes[EXT_SECRET_KEY] = {0x04, 0x35, 0x83, 0x94};
+               base58Prefixes[EXT_PUBLIC_KEY] = std::vector<unsigned char>{0x04, 0x35, 0x87, 0xCF};
+        base58Prefixes[EXT_SECRET_KEY] = std::vector<unsigned char>{0x04, 0x35, 0x83, 0x94};
+
 
         bech32_hrp = "bcrt";
     }
@@ -643,4 +649,9 @@ std::unique_ptr<const CChainParams> CChainParams::BTCBT()
 {
     return std::make_unique<const CBTCBTParams>();
 }
+std::array<uint8_t,4> CBTCBTParams::DiskMagic() const {
+    // BTCBT는 BTC blk*.dat를 재사용하므로, 디스크 매직은 BTC(F9 BE B4 D9) 유지
+    return std::array<uint8_t,4>{0xf9,0xbe,0xb4,0xd9};
+}
+
 
