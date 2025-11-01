@@ -705,15 +705,18 @@ static RPCHelpMan getblocktemplate()
         }
     }
 
-    if (strMode != "template")
+        if (strMode != "template")
         throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid mode");
 
-    if (!chainman.GetParams().IsTestChain()) {
+    // BTCBT: allow offline GBT like regtest
+    const CChainParams& _p = chainman.GetParams();
+    const bool is_btcbt = (_p.GetChainType() == ChainType::BTCBT);
+
+    if (!_p.IsTestChain() && !is_btcbt) {
         const CConnman& connman = EnsureConnman(node);
         if (connman.GetNodeCount(ConnectionDirection::Both) == 0) {
             throw JSONRPCError(RPC_CLIENT_NOT_CONNECTED, PACKAGE_NAME " is not connected!");
         }
-
         if (chainman.IsInitialBlockDownload()) {
             throw JSONRPCError(RPC_CLIENT_IN_INITIAL_DOWNLOAD, PACKAGE_NAME " is in initial sync and waiting for blocks...");
         }
@@ -721,6 +724,7 @@ static RPCHelpMan getblocktemplate()
 
     static unsigned int nTransactionsUpdatedLast;
     const CTxMemPool& mempool = EnsureMemPool(node);
+
 
     if (!lpval.isNull())
     {
@@ -776,10 +780,16 @@ static RPCHelpMan getblocktemplate()
         throw JSONRPCError(RPC_INVALID_PARAMETER, "getblocktemplate must be called with the signet rule set (call with {\"rules\": [\"segwit\", \"signet\"]})");
     }
 
-    // GBT must be called with 'segwit' set in the rules
+        // BTCBT: segwit rule auto-correct (accept even if client omitted)
     if (setClientRules.count("segwit") != 1) {
-        throw JSONRPCError(RPC_INVALID_PARAMETER, "getblocktemplate must be called with the segwit rule set (call with {\"rules\": [\"segwit\"]})");
+        if (Params().GetChainType() == ChainType::BTCBT) {
+            setClientRules.insert("segwit");
+        } else {
+            throw JSONRPCError(RPC_INVALID_PARAMETER,
+                "getblocktemplate must be called with the segwit rule set (call with {\"rules\": [\"segwit\"]})");
+        }
     }
+
 
     // Update block
     static CBlockIndex* pindexPrev;
@@ -867,15 +877,16 @@ static RPCHelpMan getblocktemplate()
     UniValue result(UniValue::VOBJ);
     result.pushKV("capabilities", aCaps);
 
-    UniValue aRules(UniValue::VARR);
-aRules.push_back("csv");
-if (!fPreSegWit) aRules.push_back("!segwit");
+        UniValue aRules(UniValue::VARR);
+    aRules.push_back("csv");
+    if (!fPreSegWit) aRules.push_back("segwit");  // segwit 활성 시에는 'segwit'
 
-// BTCBT 하드포크 이후에는 특별 rules 표시
-const CChainParams& chainparams = Params();
-if (pindexPrev->nHeight + 1 >= chainparams.GetConsensus().btcbt_fork_block_height) {
-    aRules.push_back("btcbt-hardfork");
-}
+    // BTCBT 하드포크 이후에는 특별 rules 표시
+    const CChainParams& chainparams = Params();
+    if (pindexPrev->nHeight + 1 >= chainparams.GetConsensus().btcbt_fork_block_height) {
+        aRules.push_back("btcbt-hardfork");
+    }
+
 
     if (consensusParams.signet_blocks) {
         // indicate to miner that they must understand signet rules
@@ -937,7 +948,7 @@ if (pindexPrev->nHeight + 1 >= chainparams.GetConsensus().btcbt_fork_block_heigh
     CAmount coinbaseReward = (int64_t)pblock->vtx[0]->vout[0].nValue;
 result.pushKV("coinbasevalue", coinbaseReward);
 
-// BTCBT: 포크 후 첫 블록 특별 보상 3,000,000 BTCBT
+// BTCBT: 포크 후 첫 블록 특별 보상 2,000,000 BTCBT (display)
 if (pindexPrev->nHeight + 1 == chainparams.GetConsensus().btcbt_fork_block_height + 1) {
     result.pushKV("btcbt_initial_reward", coinbaseReward);
 }
@@ -1064,9 +1075,9 @@ const CBlockIndex* pindexPrev = chainman.m_blockman.LookupBlockIndex(block.hashP
 const Consensus::Params& params = chainman.GetConsensus();
 if (pindexPrev && pindexPrev->nHeight + 1 == params.btcbt_fork_block_height + 1) {
     CAmount actual = block.vtx[0]->vout[0].nValue;
-    if (actual < 300000000000000) {
+    if (actual < 200000000000000) {
         LogPrintf("Rejected: invalid BTCBT fork reward at height %d (found %ld)\n", pindexPrev->nHeight + 1, actual);
-        return "rejected: btcbt fork block must have 3,000,000 BTCBT reward";
+        return "rejected: btcbt fork block must have 2,000,000 BTCBT reward";
     }
 }
 

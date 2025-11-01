@@ -87,7 +87,6 @@
 #include <util/time.h>
 #include <util/translation.h>
 #include <validation.h>
-#include <node/context.cpp>
 #include <validationinterface.h>
 #include <walletinitinterface.h>
 
@@ -411,6 +410,32 @@ static void OnRPCStopped()
     LogPrint(BCLog::RPC, "RPC stopped.\n");
 }
 
+// === BTCBT: startup helpers (invalidate / rollback) ===
+static bool BtcbtInvalidateByHashAtStartup(ChainstateManager& cm, const uint256& h)
+{
+    LOCK(cs_main);
+    CBlockIndex* p = cm.m_blockman.LookupBlockIndex(h);
+    if (!p) { LogPrintf("btcbt_invalidateblock: not found %s\n", h.ToString()); return false; }
+
+    Chainstate& cs = cm.ActiveChainstate();
+    BlockValidationState st;
+
+    if (!cs.InvalidateBlock(st, p)) return false;
+    return cs.ActivateBestChain(st, std::shared_ptr<const CBlock>{});
+}
+
+static bool BtcbtRollbackToHeightAtStartup(ChainstateManager& cm, int target)
+{
+    LOCK(cs_main);
+    Chainstate& cs = cm.ActiveChainstate();
+    BlockValidationState st;
+
+    while (cs.m_chain.Height() > target) {
+        if (!cs.DisconnectTip(st, nullptr)) return false;
+    }
+    return cs.ActivateBestChain(st, std::shared_ptr<const CBlock>{});
+}
+
 void SetupServerArgs(ArgsManager& argsman)
 {
     SetupHelpOptions(argsman);
@@ -570,9 +595,15 @@ void SetupServerArgs(ArgsManager& argsman)
     argsman.AddArg("-checkmempool=<n>", strprintf("Run mempool consistency checks every <n> transactions. Use 0 to disable. (default: %u, regtest: %u)", defaultChainParams->DefaultConsistencyChecks(), regtestChainParams->DefaultConsistencyChecks()), ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::DEBUG_TEST);
     argsman.AddArg("-checkpoints", strprintf("Enable rejection of any forks from the known historical chain until block %s (default: %u)", defaultChainParams->Checkpoints().GetHeight(), DEFAULT_CHECKPOINTS_ENABLED), ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::DEBUG_TEST);
     argsman.AddArg("-deprecatedrpc=<method>", "Allows deprecated RPC method(s) to be used", ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::DEBUG_TEST);
-    argsman.AddArg("-stopafterblockimport", strprintf("Stop running after importing blocks from disk (default: %u)", DEFAULT_STOPAFTERBLOCKIMPORT), ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::DEBUG_TEST);
-    argsman.AddArg("-stopatheight", strprintf("Stop running after reaching the given height in the main chain (default: %u)", DEFAULT_STOPATHEIGHT), ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::DEBUG_TEST);
-    argsman.AddArg("-limitancestorcount=<n>", strprintf("Do not accept transactions if number of in-mempool ancestors is <n> or more (default: %u)", DEFAULT_ANCESTOR_LIMIT), ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::DEBUG_TEST);
+        argsman.AddArg("-stopafterblockimport", strprintf("Stop running after importing blocks from disk (default: %u)", DEFAULT_STOPAFTERBLOCKIMPORT), ArgsManager::ALLOW_ANY, OptionsCategory::DEBUG_TEST);
+    argsman.AddArg("-stopatheight", strprintf("Stop running after reaching the given height in the main chain (default: %u)", DEFAULT_STOPATHEIGHT), ArgsManager::ALLOW_ANY, OptionsCategory::DEBUG_TEST);
+
+    // BTCBT: startup rollback / invalidate options (RPC 없이 한 번에 되돌리기)
+    argsman.AddArg("-btcbt_invalidateblock=<hex>", "Invalidate the given block hash at startup and reorg to the best valid chain", ArgsManager::ALLOW_ANY, OptionsCategory::DEBUG_TEST);
+    argsman.AddArg("-btcbt_rollbacktoheight=<n>", "Rollback tip down to the given height at startup (disconnect tip blocks until height == n)", ArgsManager::ALLOW_ANY, OptionsCategory::DEBUG_TEST);
+
+    argsman.AddArg("-limitancestorcount=<n>", strprintf("Do not accept transactions if number of in-mempool ancestors is <n> or more (default: %u)", DEFAULT_ANCESTOR_LIMIT), ArgsManager::ALLOW_ANY, OptionsCategory::DEBUG_TEST);
+
     argsman.AddArg("-limitancestorsize=<n>", strprintf("Do not accept transactions whose size with all in-mempool ancestors exceeds <n> kilobytes (default: %u)", DEFAULT_ANCESTOR_SIZE_LIMIT_KVB), ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::DEBUG_TEST);
     argsman.AddArg("-limitdescendantcount=<n>", strprintf("Do not accept transactions if any ancestor would have <n> or more in-mempool descendants (default: %u)", DEFAULT_DESCENDANT_LIMIT), ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::DEBUG_TEST);
     argsman.AddArg("-limitdescendantsize=<n>", strprintf("Do not accept transactions if any ancestor would have more than <n> kilobytes of in-mempool descendants (default: %u).", DEFAULT_DESCENDANT_SIZE_LIMIT_KVB), ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::DEBUG_TEST);
@@ -1908,10 +1939,61 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
     // If we do not do this, RPC's view of the best block will be height=0 and
     // hash=0x0. This will lead to erroroneous responses for things like
     // waitforblockheight.
-    RPCNotifyBlockChange(WITH_LOCK(chainman.GetMutex(), return chainman.ActiveTip()));
-    SetRPCWarmupFinished();
+        // BTCBT: startup invalidate / rollback (RPC 없이 한 번에 되돌리기)
+    if (args.IsArgSet("-btcbt_invalidateblock")) {
+        uint256 h; h.SetHex(args.GetArg("-btcbt_invalidateblock", ""));
+        if (!h.IsNull()) {
+            if (!BtcbtInvalidateByHashAtStartup(chainman, h)) {
+                LogPrintf("btcbt_invalidateblock failed for %s\n", h.ToString());
+            }
+        }
+    }
+    if (args.IsArgSet("-btcbt_rollbacktoheight")) {
+        int target = args.GetIntArg("-btcbt_rollbacktoheight", -1);
+        if (target >= 0) {
+            if (!BtcbtRollbackToHeightAtStartup(chainman, target)) {
+                LogPrintf("btcbt_rollbacktoheight failed for %d\n", target);
+            }
+        }
+    }
+
+    // RPC warmup: expose the current best block to RPC layer
+   // BTCBT: startup invalidate / rollback (no-RPC)
+if (gArgs.IsArgSet("-btcbt_invalidateblock")) {
+    uint256 h; h.SetHex(gArgs.GetArg("-btcbt_invalidateblock", ""));
+    LogPrintf("btcbt: startup invalidate request: %s\n", h.ToString());
+    if (!h.IsNull()) {
+        if (!BtcbtInvalidateByHashAtStartup(chainman, h)) {
+            LogPrintf("btcbt: invalidate failed for %s\n", h.ToString());
+        } else {
+            LogPrintf("btcbt: invalidate done for %s\n", h.ToString());
+        }
+    } else {
+        LogPrintf("btcbt: invalid hash for -btcbt_invalidateblock\n");
+    }
+}
+if (gArgs.IsArgSet("-btcbt_rollbacktoheight")) {
+    int target = gArgs.GetIntArg("-btcbt_rollbacktoheight", -1);
+    LogPrintf("btcbt: startup rollback request to height=%d\n", target);
+    if (target >= 0) {
+        if (!BtcbtRollbackToHeightAtStartup(chainman, target)) {
+            LogPrintf("btcbt: rollback failed to %d\n", target);
+        } else {
+            LogPrintf("btcbt: rollback done to %d\n", target);
+        }
+    } else {
+        LogPrintf("btcbt: invalid target for -btcbt_rollbacktoheight\n");
+    }
+}
+
+// warmup 마무리
+RPCNotifyBlockChange(WITH_LOCK(chainman.GetMutex(), return chainman.ActiveTip()));
+SetRPCWarmupFinished();
+
+
 
     uiInterface.InitMessage(_("Done loading").translated);
+
 
     for (const auto& client : node.chain_clients) {
         client->start(*node.scheduler);

@@ -143,6 +143,9 @@ enum : uint32_t {
     // Making unknown public key versions (in BIP 342 scripts) non-standard
     SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_PUBKEYTYPE = (1U << 20),
 
+ // ✅ 추가: BTCBT 전용 신규 OP 허용 스위치 (포크 이후에만 켜짐)
+    SCRIPT_VERIFY_BTCBT_OPS = (1U << 21),
+
     // Constants to point to the highest flag in use. Add new flags above this line.
     //
     SCRIPT_VERIFY_END_MARKER

@@ -150,3 +150,14 @@ dist/
 /guix-build-*
 
 /ci/scratch/
+# === Local temporary/backup files ===
+*.bak*
+*Zone.Identifier*
+src/kernel/chainparams.cpp.bak*
+src/validation*.cpp.bak*
+src/pow*.bak*
+src/kernel/chainparams - *
+src/validation - *
+
+# ignore embedded repo and local tools
+lnd/

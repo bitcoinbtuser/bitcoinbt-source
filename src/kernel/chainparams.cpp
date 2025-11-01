@@ -80,7 +80,7 @@ public:
         consensus.script_flag_exceptions.emplace( // Taproot exception
             uint256S("0x0000000000000000000f14c35b2d841e986ab5441de8c585d5ffe55ea1e395ad"), SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_WITNESS);
         consensus.BIP34Height = 227931;
-        consensus.BIP34Hash = uint256S("0x000000000000024b89b42a942fe0d9fea3bb44ab7bd1b19115dd6a759c0808b8");
+        consensus.BIP34Hash = uint256S("0x00000000000002d01c5a6e2cbd2f3b98ae16c5e12a9dc9e3bd2963e4b1f7f5b4");
         consensus.BIP65Height = 388381; // 000000000000000004c2b624ed5d7756c508d90fd0da2c7c679febfa6c4735f0
         consensus.BIP66Height = 363725; // 00000000000000000379eaa19dce8c9b722d46ae6a57c2f1a988119488b50931
         consensus.CSVHeight = 419328; // 000000000000000004a1b34462cb8aeebd5799177f7a29cf28f2d1961716b5b5
@@ -99,10 +99,10 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].min_activation_height = 0; // No activation delay
 
         // Deployment of Taproot (BIPs 340-342)
-        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].bit = 2;
-        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nStartTime = 1619222400; // April 24th, 2021
-        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nTimeout = 1628640000; // August 11th, 2021
-        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].min_activation_height = 709632; // Approximately November 12th, 2021
+       consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].bit = 2;
+consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nStartTime = 1622160000; // 2021-05-28 (BTC v26)
+consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nTimeout   = 1635638400; // 2021-10-31 (BTC v26)
+consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].min_activation_height = 709632;
 
         consensus.nMinimumChainWork = uint256S("0x000000000000000000000000000000000000000052b2559353df4117b7348b64");
         consensus.defaultAssumeValid = uint256S("0x00000000000000000001a0a448d6cf2546b06801389cc030b2b18c6491266815"); // 804000
@@ -404,104 +404,126 @@ public:
  * Regression test: intended for private networks only. Has minimal difficulty to ensure that
  * blocks can be found instantly.
  */
+
+// ====== 기존 class CBTCBTParams 블록 전체 교체 시작 ======
 class CBTCBTParams : public CChainParams {
 public:
- std::array<uint8_t,4> DiskMagic() const;
     CBTCBTParams() {
-        m_chain_type = ChainType::BTCBT;
+        // (선택) 여러분이 ChainType::BTCBT 를 추가해두었다면 사용하세요.
+        // m_chain_type = ChainType::BTCBT;
+m_chain_type = ChainType::BTCBT;   // ★ 반드시 명시: 체인 타입 고정
+
+        // v27은 blk.dat 스캔에 MessageStart를 그대로 사용하므로,
+        // BTC 원본 blk 매직(F9 BE B4 D9)과 동일하게 맞춘다.
+        pchMessageStart[0] = 0xF9;
+        pchMessageStart[1] = 0xBE;        pchMessageStart[2] = 0xB4;
+        pchMessageStart[3] = 0xD9;
+
+        // (선택) 명시적으로 디스크 매직도 동일하게 세팅
+        pchDiskMagic[0] = 0xF9;
+        pchDiskMagic[1] = 0xBE;
+        pchDiskMagic[2] = 0xB4;
+        pchDiskMagic[3] = 0xD9;
+
+        // 포트/프루닝
+        nDefaultPort = 8333;
+        nPruneAfterHeight = 100000;
+
+        // ===== BTCBT 포크/합의 파라미터 =====
         consensus.signet_blocks = false;
         consensus.signet_challenge.clear();
 
+        // 포크 기준 (BTC 블록 903,844)
         consensus.btcbt_fork_block_height = 903844;
-consensus.btcbt_fork_block_hash   = uint256S("000000000000000000015f4b69129c42068a384d79b7693efd426a369b865fa9");
-        consensus.btcbt_block_interval = 5 * 60;
-        consensus.btcbt_halving_interval = 210000;
-        consensus.btcbt_max_block_size = 32'000'000;
-        consensus.btcbt_max_block_sigops_cost = 320000;
+        consensus.btcbt_fork_block_hash   = uint256S("000000000000000000015f4b69129c42068a384d79b7693efd426a369b865fa9");
 
-        // ✅ ASERT 기준 anchor 설정
+        // 포크 이후 규칙
+        consensus.btcbt_block_interval         = 5 * 60;        // 5분
+        consensus.btcbt_halving_interval       = 210000;        // 약 2년
+        consensus.btcbt_max_block_size         = 32'000'000;    // 32 MB
+        consensus.btcbt_max_block_sigops_cost  = 320000;
+
+        // ASERT 난이도 앵커 (포크 시점)
         consensus.btcbt_asert_anchor_height = 903844;
-consensus.btcbt_asert_anchor_hash   = uint256S("000000000000000000015f4b69129c42068a384d79b7693efd426a369b865fa9");
-consensus.btcbt_asert_anchor_bits   = 0x17026816; // Block 903,844 nBits
+        consensus.btcbt_asert_anchor_hash   = uint256S("000000000000000000015f4b69129c42068a384d79b7693efd426a369b865fa9");
+        consensus.btcbt_asert_anchor_bits   = 0x17026816;
 
-
-       // 프리포크(비트코인 구간) 기본값은 원래 값 유지
-consensus.nSubsidyHalvingInterval = 210000;               // 그대로 OK
-consensus.nPowTargetSpacing       = 10 * 60;              // 10분
-consensus.nPowTargetTimespan      = 14 * 24 * 60 * 60;    // 2주
-
-// 포크 이후 규칙은 별도 btcbt_*로 이미 존재 (pow.cpp가 분기해 사용)
-consensus.btcbt_block_interval    = 5 * 60;               // 이미 설정됨
+        // 포크 이전(=BTC 레거시 구간)은 BTC 값 유지
+        consensus.nSubsidyHalvingInterval = 210000;
+        consensus.nPowTargetSpacing       = 10 * 60;
+        consensus.nPowTargetTimespan      = 14 * 24 * 60 * 60;
         consensus.fPowAllowMinDifficultyBlocks = false;
         consensus.fPowNoRetargeting = false;
         consensus.powLimit = uint256S("00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
 
+        // 레거시 BIP/버리드 배포 높이 (BTC 기준 유지)
         consensus.BIP34Height = 227931;
-        consensus.BIP34Hash = uint256S("00000000000002d01c5a6e2cbd2f3b98ae16c5e12a9dc9e3bd2963e4b1f7f5b4");
+        consensus.BIP34Hash   = uint256S("0x00000000000002d01c5a6e2cbd2f3b98ae16c5e12a9dc9e3bd2963e4b1f7f5b4");
         consensus.BIP65Height = 388381;
         consensus.BIP66Height = 363725;
-        consensus.CSVHeight = 419328;
+        consensus.CSVHeight   = 419328;
         consensus.SegwitHeight = 481824;
         consensus.MinBIP9WarningHeight = 0;
 
         consensus.nRuleChangeActivationThreshold = 1916;
         consensus.nMinerConfirmationWindow = 2016;
 
-                consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY] = {
+        // TESTDUMMY 비활성
+        consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY] = {
             .bit = 28,
             .nStartTime = Consensus::BIP9Deployment::NEVER_ACTIVE,
             .nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT,
             .min_activation_height = 0,
         };
 
-        // ✅ Taproot + Schnorr 활성화
-        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].bit = 2;
-        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
-        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
-        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].min_activation_height = consensus.btcbt_fork_block_height;
+        // Taproot 상시 활성(최소 활성 높이는 포크 블록에 정렬)
+       consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].bit = 2;
+consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nStartTime = 1622160000; // 2021-05-28
+consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nTimeout   = 1635638400; // 2021-10-31
+consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].min_activation_height = 709632;
 
-    
+        // assumeutxo/assumevalid 초기 비움
         consensus.nMinimumChainWork = uint256{};
         consensus.defaultAssumeValid = uint256{};
 
-        // 임포트 전용 빌드: BTC blk*.dat 스캔을 위해 BTC 매직 사용
-        pchMessageStart[0] = 0xf9;
-        pchMessageStart[1] = 0xbe;
-        pchMessageStart[2] = 0xb4;
-        pchMessageStart[3] = 0xd9;
-        nDefaultPort = 8333; // 포트는 임포트에 영향 없음
-        nPruneAfterHeight = 100000;
         m_assumed_blockchain_size = 0;
         m_assumed_chain_state_size = 0;
 
+        // ===== 제네시스(비트코인과 동일) =====
         genesis = CreateGenesisBlock(1231006505, 2083236893, 0x1d00ffff, 1, 50 * COIN);
         consensus.hashGenesisBlock = genesis.GetHash();
         assert(consensus.hashGenesisBlock == uint256S("0x000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f"));
         assert(genesis.hashMerkleRoot == uint256S("0x4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b"));
 
-        base58Prefixes[PUBKEY_ADDRESS] = std::vector<unsigned char>(1,0);
-        base58Prefixes[SCRIPT_ADDRESS] = std::vector<unsigned char>(1,5);
-        base58Prefixes[SECRET_KEY]     = std::vector<unsigned char>(1,128);
-                base58Prefixes[EXT_PUBLIC_KEY] = std::vector<unsigned char>{0x04, 0x88, 0xB2, 0x1E};
+        // 주소 프리픽스: P2PKH/P2SH/비밀키는 BTC와 동일 유지(하드포크 호환),
+        // Bech32 HRP만 BTCBT 고유값으로 구분 (bcbt 권장)
+        base58Prefixes[PUBKEY_ADDRESS] = std::vector<unsigned char>(1, 0);
+        base58Prefixes[SCRIPT_ADDRESS] = std::vector<unsigned char>(1, 5);
+        base58Prefixes[SECRET_KEY]     = std::vector<unsigned char>(1, 128);
+        base58Prefixes[EXT_PUBLIC_KEY] = std::vector<unsigned char>{0x04, 0x88, 0xB2, 0x1E};
         base58Prefixes[EXT_SECRET_KEY] = std::vector<unsigned char>{0x04, 0x88, 0xAD, 0xE4};
 
-        bech32_hrp = "btcbt";
+        // 고유 HRP
+        bech32_hrp = "bcbt";
 
+        // 부트스트랩을 위해 초기에는 시드를 비워둡니다.
         vSeeds.clear();
         vFixedSeeds.clear();
+
         fDefaultConsistencyChecks = false;
         m_is_mockable_chain = false;
 
         checkpointData = {
             {
-                {0, consensus.hashGenesisBlock}
+                {0, consensus.hashGenesisBlock},
             }
         };
 
-        m_assumeutxo_data = {};  // 향후 업데이트
+        m_assumeutxo_data = {};
         chainTxData = {0, 0, 0.0};
     }
 };
+// ====== 기존 class CBTCBTParams 블록 전체 교체 끝 ======
 
 class CRegTestParams : public CChainParams
 {
@@ -540,12 +562,13 @@ public:
         consensus.nMinimumChainWork = uint256{};
         consensus.defaultAssumeValid = uint256{};
 
-        pchMessageStart[0] = 0xfa;
-        pchMessageStart[1] = 0xbf;
-        pchMessageStart[2] = 0xb5;
-        pchMessageStart[3] = 0xda;
-        nDefaultPort = 18444;
-        nPruneAfterHeight = opts.fastprune ? 100 : 1000;
+       // BTCBT는 단일 고유 매직/포트 유지(덮어쓰기 금지)
+       pchMessageStart[0] = 0xfa;
+pchMessageStart[1] = 0xbf;
+pchMessageStart[2] = 0xb5;
+pchMessageStart[3] = 0xda;
+nDefaultPort = 18444;
+nPruneAfterHeight = opts.fastprune ? 100 : 1000;
         m_assumed_blockchain_size = 0;
         m_assumed_chain_state_size = 0;
 
@@ -648,10 +671,6 @@ std::unique_ptr<const CChainParams> CChainParams::TestNet()
 std::unique_ptr<const CChainParams> CChainParams::BTCBT()
 {
     return std::make_unique<const CBTCBTParams>();
-}
-std::array<uint8_t,4> CBTCBTParams::DiskMagic() const {
-    // BTCBT는 BTC blk*.dat를 재사용하므로, 디스크 매직은 BTC(F9 BE B4 D9) 유지
-    return std::array<uint8_t,4>{0xf9,0xbe,0xb4,0xd9};
 }
 
 

@@ -1081,23 +1081,35 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                 }
                 break;
 
-case OP_CHECKSIGMUSIG2:
-{
-    if (stack.size() < 2)
-        return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+                case OP_CHECKSIGMUSIG2:
+                {
+                    // === 패치 후: 포크 이전 차단 + Tapscript 전용 (원하면 BASE/WITNESS_V0도 허용 가능) ===
+                    if (!(flags & SCRIPT_VERIFY_BTCBT_OPS)) {
+                        return set_error(serror, SCRIPT_ERR_BAD_OPCODE);
+                    }
+                    if (sigversion != SigVersion::TAPSCRIPT) {
+                        return set_error(serror, SCRIPT_ERR_BAD_OPCODE);
+                    }
 
-    valtype& vchSig    = stacktop(-2);
-    valtype& vchPubKey = stacktop(-1);
+                    if (stack.size() < 2)
+                        return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
 
-    bool fSuccess = checker.CheckMuSig2Signature(vchSig, vchPubKey, sigversion, execdata, serror);
-    if (!fSuccess && (flags & SCRIPT_VERIFY_NULLFAIL) && vchSig.size())
-        return set_error(serror, SCRIPT_ERR_SIG_NULLFAIL);
+                    valtype& vchSig    = stacktop(-2);
+                    valtype& vchPubKey = stacktop(-1);
 
-    popstack(stack);
-    popstack(stack);
-    stack.push_back(fSuccess ? vchTrue : vchFalse);
-}
-break;
+                    bool fSuccess = checker.CheckMuSig2Signature(vchSig, vchPubKey, sigversion, execdata, serror);
+                    if (!fSuccess && (flags & SCRIPT_VERIFY_NULLFAIL) && vchSig.size())
+                        return set_error(serror, SCRIPT_ERR_SIG_NULLFAIL);
+
+                    popstack(stack);
+                    popstack(stack);
+                    stack.push_back(fSuccess ? vchTrue : vchFalse);
+                }
+                break;
+
+// ⬇️⬇️⬇️ 여기에 CashTokens OP 분기 추가 ⬇️⬇️⬇️
+//case OP_TOKEN_PREFIX:
+
 
 // ⬇️⬇️⬇️ 여기에 CashTokens OP 분기 추가 ⬇️⬇️⬇️
 

@@ -26,57 +26,39 @@
 
 typedef std::map<int, uint256> MapCheckpoints;
 
+// --- v27 호환: 체크포인트가 비어있을 수 있으므로 가드 추가 ---
 struct CCheckpointData {
     MapCheckpoints mapCheckpoints;
 
     int GetHeight() const {
-        const auto& final_checkpoint = mapCheckpoints.rbegin();
-        return final_checkpoint->first /* height */;
+        if (mapCheckpoints.empty()) return 0;
+        const auto it = mapCheckpoints.crbegin();
+        return it->first; // height
     }
 };
 
+// --- v27 스타일: BaseHash<uint256> 래퍼 + 기본 생성자 제공 ---
 struct AssumeutxoHash : public BaseHash<uint256> {
+    AssumeutxoHash() : BaseHash(uint256()) {}                 // 기본 생성자 (0 해시)
     explicit AssumeutxoHash(const uint256& hash) : BaseHash(hash) {}
 };
 
-/**
- * Holds configuration for use during UTXO snapshot load and validation. The contents
- * here are security critical, since they dictate which UTXO snapshots are recognized
- * as valid.
- */
+// --- v27 스타일: assumeutxo 메타데이터 컨테이너 ---
 struct AssumeutxoData {
-    int height;
-
-    //! The expected hash of the deserialized UTXO set.
-    AssumeutxoHash hash_serialized;
-
-    //! Used to populate the nChainTx value, which is used during BlockManager::LoadBlockIndex().
-    //!
-    //! We need to hardcode the value here because this is computed cumulatively using block data,
-    //! which we do not necessarily have at the time of snapshot load.
-    unsigned int nChainTx;
-
-    //! The hash of the base block for this snapshot. Used to refer to assumeutxo data
-    //! prior to having a loaded blockindex.
-    uint256 blockhash;
+    int height{0};
+    AssumeutxoHash hash_serialized{}; // 기본 0으로 초기화
+    uint64_t nChainTx{0};             // 스냅샷 기준 누적 tx 수 (LoadBlockIndex 보조)
+    uint256 blockhash{};
 };
 
-/**
- * Holds various statistics on transactions within a chain. Used to estimate
- * verification progress during chain sync.
- *
- * See also: CChainParams::TxData, GuessVerificationProgress.
- */
+// 체인 트랜잭션 통계(IBD 진행률 추정용)
 struct ChainTxData {
-    int64_t nTime;    //!< UNIX timestamp of last known number of transactions
-    int64_t nTxCount; //!< total number of transactions between genesis and that timestamp
-    double dTxRate;   //!< estimated number of transactions per second after that timestamp
+    int64_t nTime;    //!< 마지막 tx 수 기준의 UNIX 타임스탬프
+    int64_t nTxCount; //!< 해당 시점까지 총 tx 수
+    double  dTxRate;  //!< 그 이후 추정 TPS
 };
 
-/**
- * CChainParams defines various tweakable parameters of a given instance of the
- * Bitcoin system.
- */
+// CChainParams: 네트워크별 조정 가능한 모든 파라미터
 class CChainParams
 {
 public:
@@ -92,33 +74,26 @@ public:
 
     const Consensus::Params& GetConsensus() const { return consensus; }
     const MessageStartChars& MessageStart() const { return pchMessageStart; }
+    const MessageStartChars& DiskMagic()  const { return pchDiskMagic; } // BTCBT 전용(blk.dat 매직)
     uint16_t GetDefaultPort() const { return nDefaultPort; }
 
     const CBlock& GenesisBlock() const { return genesis; }
-    /** Default value for -checkmempool and -checkblockindex argument */
     bool DefaultConsistencyChecks() const { return fDefaultConsistencyChecks; }
-    /** If this chain is exclusively used for testing */
     bool IsTestChain() const { return m_chain_type != ChainType::MAIN; }
-    /** If this chain allows time to be mocked */
     bool IsMockableChain() const { return m_is_mockable_chain; }
     uint64_t PruneAfterHeight() const { return nPruneAfterHeight; }
-    /** Minimum free space (in GB) needed for data directory */
     uint64_t AssumedBlockchainSize() const { return m_assumed_blockchain_size; }
-    /** Minimum free space (in GB) needed for data directory when pruned; Does not include prune target*/
     uint64_t AssumedChainStateSize() const { return m_assumed_chain_state_size; }
-    /** Whether it is possible to mine blocks on demand (no retargeting) */
     bool MineBlocksOnDemand() const { return consensus.fPowNoRetargeting; }
-    /** Return the chain type string */
     std::string GetChainTypeString() const { return ChainTypeToString(m_chain_type); }
-    /** Return the chain type */
     ChainType GetChainType() const { return m_chain_type; }
-    /** Return the list of hostnames to look up for DNS seeds */
     const std::vector<std::string>& DNSSeeds() const { return vSeeds; }
     const std::vector<unsigned char>& Base58Prefix(Base58Type type) const { return base58Prefixes[type]; }
     const std::string& Bech32HRP() const { return bech32_hrp; }
     const std::vector<uint8_t>& FixedSeeds() const { return vFixedSeeds; }
     const CCheckpointData& Checkpoints() const { return checkpointData; }
 
+    // assumeutxo 조회
     std::optional<AssumeutxoData> AssumeutxoForHeight(int height) const
     {
         return FindFirst(m_assumeutxo_data, [&](const auto& d) { return d.height == height; });
@@ -130,26 +105,20 @@ public:
 
     const ChainTxData& TxData() const { return chainTxData; }
 
-    /**
-     * SigNetOptions holds configurations for creating a signet CChainParams.
-     */
+    // SigNet 옵션 (v27)
     struct SigNetOptions {
         std::optional<std::vector<uint8_t>> challenge{};
         std::optional<std::vector<std::string>> seeds{};
     };
 
-    /**
-     * VersionBitsParameters holds activation parameters
-     */
+    // 버전비트 파라미터 (v27)
     struct VersionBitsParameters {
         int64_t start_time;
         int64_t timeout;
         int min_activation_height;
     };
 
-    /**
-     * RegTestOptions holds configurations for creating a regtest CChainParams.
-     */
+    // Regtest 옵션 (v27)
     struct RegTestOptions {
         std::unordered_map<Consensus::DeploymentPos, VersionBitsParameters> version_bits_parameters{};
         std::unordered_map<Consensus::BuriedDeployment, int> activation_heights{};
@@ -157,32 +126,33 @@ public:
     };
 
     static std::unique_ptr<const CChainParams> RegTest(const RegTestOptions& options);
-static std::unique_ptr<const CChainParams> SigNet(const SigNetOptions& options);
-static std::unique_ptr<const CChainParams> Main();
-static std::unique_ptr<const CChainParams> TestNet();
-static std::unique_ptr<const CChainParams> BTCBT();   // ✅ 여기 추가
-
+    static std::unique_ptr<const CChainParams> SigNet(const SigNetOptions& options);
+    static std::unique_ptr<const CChainParams> Main();
+    static std::unique_ptr<const CChainParams> TestNet();
+    static std::unique_ptr<const CChainParams> BTCBT(); // BTCBT 전용 팩토리
 
 protected:
     CChainParams() {}
 
     Consensus::Params consensus;
     MessageStartChars pchMessageStart;
-    uint16_t nDefaultPort;
-    uint64_t nPruneAfterHeight;
-    uint64_t m_assumed_blockchain_size;
-    uint64_t m_assumed_chain_state_size;
+    MessageStartChars pchDiskMagic; // 디스크 블록 파일 매직 (P2P와 분리 가능)
+
+    uint16_t nDefaultPort{0};
+    uint64_t nPruneAfterHeight{0};
+    uint64_t m_assumed_blockchain_size{0};
+    uint64_t m_assumed_chain_state_size{0};
     std::vector<std::string> vSeeds;
     std::vector<unsigned char> base58Prefixes[MAX_BASE58_TYPES];
     std::string bech32_hrp;
-    ChainType m_chain_type;
+    ChainType m_chain_type{ChainType::MAIN};
     CBlock genesis;
     std::vector<uint8_t> vFixedSeeds;
-    bool fDefaultConsistencyChecks;
-    bool m_is_mockable_chain;
+    bool fDefaultConsistencyChecks{false};
+    bool m_is_mockable_chain{false};
     CCheckpointData checkpointData;
     std::vector<AssumeutxoData> m_assumeutxo_data;
-    ChainTxData chainTxData;
+    ChainTxData chainTxData{0,0,0.0};
 };
 
 #endif // BITCOIN_KERNEL_CHAINPARAMS_H

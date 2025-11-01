@@ -33,18 +33,36 @@
 // Adaptive Block Size: 동적 블록 크기 계산 함수
 int GetAdaptiveMaxBlockWeight(size_t mempool_tx_count, int cur_height, const Consensus::Params& consensus)
 {
-    // ─── 포크 전/후 하한 분기 ───
+    // ✅ regtest 우회: 항상 MAX_BLOCK_WEIGHT 반환 (4,000,000)
+    const CChainParams& params = Params();
+    if (params.GetChainType() == ChainType::REGTEST) {
+        return MAX_BLOCK_WEIGHT;
+    }
+
+    // ── 합의 한도 내에서 동작 ──
+    const int hard_cap = std::min<int>(static_cast<int>(MAX_BLOCK_WEIGHT),
+                                       static_cast<int>(consensus.btcbt_max_block_size));
+
     const bool post_fork = (cur_height >= consensus.btcbt_fork_block_height);
-    const int min_weight = post_fork ? 8000000 : 4000000;   // 포크 이후 최소 8MB(선택)
-    const int max_weight = 32000000;                        // 32MB
 
-    if (mempool_tx_count < 1000) return min_weight;
-    if (mempool_tx_count > 100000) return max_weight;
+    // 하한/상한을 합의 한도 내에서 결정
+    const int min_weight = std::min<int>(hard_cap, post_fork ? 8'000'000 : 4'000'000);
+    const int max_weight = std::min<int>(hard_cap, 32'000'000);
 
-    return min_weight + ((mempool_tx_count * (max_weight - min_weight)) / 100000);
+    // ✅ 가드: mempool=0 또는 매우 적을 때 분모 0/불안정 방지
+    if (mempool_tx_count == 0)       return min_weight;
+    if (mempool_tx_count <= 1'000)   return min_weight;
+    if (mempool_tx_count >= 100'000) return max_weight;
+
+    // ✅ 64bit 계산 후 최종 int로 clamp
+    const int64_t span = (int64_t)max_weight - (int64_t)min_weight;
+    const int64_t add  = ((int64_t)mempool_tx_count * span) / 100'000;
+    const int64_t res  = (int64_t)min_weight + add;
+
+    return (int)std::clamp<int64_t>(res, min_weight, max_weight);
 }
 using node::g_node;
-
+// 찾기용 앵커(끝): GetAdaptiveMaxBlockWeight REPLACE END
 namespace node {
 
 int64_t UpdateTime(CBlockHeader* pblock, const Consensus::Params& consensusParams, const CBlockIndex* pindexPrev)
@@ -67,9 +85,15 @@ void RegenerateCommitments(CBlock& block, ChainstateManager& chainman)
     block.hashMerkleRoot = BlockMerkleRoot(block);
 }
 
+// 찾기용 앵커(시작): BlockAssembler-ctor REPLACE START
 static BlockAssembler::Options ClampOptions(BlockAssembler::Options options)
 {
-    options.nBlockMaxWeight = std::clamp<size_t>(options.nBlockMaxWeight, 4000, DEFAULT_BLOCK_MAX_WEIGHT);
+    // 후속 패치: 합의 한도 내에서 상한을 계산
+    const Consensus::Params& consensus = Params().GetConsensus();
+    const size_t hard_cap = static_cast<size_t>(std::min<int>(
+        static_cast<int>(MAX_BLOCK_WEIGHT),
+        static_cast<int>(consensus.btcbt_max_block_size)));
+    options.nBlockMaxWeight = std::clamp<size_t>(options.nBlockMaxWeight, static_cast<size_t>(4000), hard_cap);
     return options;
 }
 
@@ -77,37 +101,96 @@ BlockAssembler::BlockAssembler(Chainstate& chainstate, const CTxMemPool* mempool
     : chainparams{chainstate.m_chainman.GetParams()},
       m_mempool{mempool},
       m_chainstate{chainstate},
-      m_options{ClampOptions(options)} {}
+      // ✅ m_options은 const이므로, 초기화 리스트에서 람다로 계산해 주입
+      m_options{[&]() {
+          Options o = ClampOptions(options);
+          const CChainParams& p = chainstate.m_chainman.GetParams();
+          if (p.GetChainType() == ChainType::REGTEST) {
+              o.nBlockMaxWeight = MAX_BLOCK_WEIGHT; // 4,000,000
+          }
+          return o;
+      }()}
+{
+    // (본문에서는 m_options에 대입하지 않음: const)
+}
+// 찾기용 앵커(끝): BlockAssembler-ctor REPLACE END
 
+// 찾기용 앵커(시작): ApplyArgsManOptions LOG FIX REPLACE START
 void ApplyArgsManOptions(const ArgsManager& args, BlockAssembler::Options& options)
 {
-    options.nBlockMaxWeight = args.GetIntArg("-blockmaxweight", options.nBlockMaxWeight);
+    // REGTEST: -blockmaxweight 무시하고 고정 한도
+    const CChainParams& params = Params();
+    if (params.GetChainType() == ChainType::REGTEST) {
+        options.nBlockMaxWeight = MAX_BLOCK_WEIGHT;
+    } else {
+        // 그 외 체인: 사용자 인자 허용하되 4000 ~ MAX_BLOCK_WEIGHT 범위로 clamp
+        const int user_w = args.GetIntArg("-blockmaxweight", static_cast<int>(options.nBlockMaxWeight));
+        options.nBlockMaxWeight = std::clamp<size_t>(
+            static_cast<size_t>(user_w), 4000, static_cast<size_t>(MAX_BLOCK_WEIGHT));
+    }
+    // 👇 로그: v26 호환을 위해 LogPrintf 사용, size_t는 %zu
+    LogPrintf("ApplyArgsManOptions: nBlockMaxWeight=%zu\n", options.nBlockMaxWeight);
+
+    // (기존) -blockmintxfee 처리 유지
     if (const auto blockmintxfee{args.GetArg("-blockmintxfee")}) {
-        if (const auto parsed{ParseMoney(*blockmintxfee)})
+        if (const auto parsed{ParseMoney(*blockmintxfee)}) {
             options.blockMinFeeRate = CFeeRate{*parsed};
+        }
     }
 }
+// 찾기용 앵커(끝): ApplyArgsManOptions LOG FIX REPLACE END
 
+
+// 찾기용 앵커(시작): ConfiguredOptions LOG FIX REPLACE START
 static BlockAssembler::Options ConfiguredOptions(const CTxMemPool* mempool, const Chainstate& chainstate)
 {
     BlockAssembler::Options options;
     ApplyArgsManOptions(gArgs, options);
 
-    int mempool_tx_count = 0;
-    if (mempool) {
-        mempool_tx_count = mempool->size();
-    }
+    const CChainParams& params = chainstate.m_chainman.GetParams();
+    const auto& consensus = params.GetConsensus();
+    const bool is_regtest = (params.GetChainType() == ChainType::REGTEST);
 
+    const int mp = mempool ? static_cast<int>(mempool->size()) : 0;
     const CBlockIndex* tip = chainstate.m_chain.Tip();
     const int cur_height = tip ? (tip->nHeight + 1) : 0;
-    const auto& consensus = chainstate.m_chainman.GetParams().GetConsensus();
 
-    options.nBlockMaxWeight = GetAdaptiveMaxBlockWeight(mempool_tx_count, cur_height, consensus);
+    // ✅ REGTEST: 항상 고정 한도 반환
+    if (is_regtest) {
+        options.nBlockMaxWeight = MAX_BLOCK_WEIGHT;
+        // 👇 로그
+        LogPrintf("ConfiguredOptions[regtest]: mp=%d, height=%d, nBlockMaxWeight=%zu\n",
+                  mp, cur_height, static_cast<size_t>(options.nBlockMaxWeight));
+        return ClampOptions(options);
+    }
+
+    // ✅ mempool=0: 초기 조립 경로 안정화 — 기본 한도 사용
+    if (mp == 0) {
+        options.nBlockMaxWeight = DEFAULT_BLOCK_MAX_WEIGHT;
+        // 👇 로그
+        LogPrintf("ConfiguredOptions[mp=0]: height=%d, nBlockMaxWeight=%zu\n",
+                  cur_height, static_cast<size_t>(options.nBlockMaxWeight));
+        return ClampOptions(options);
+    }
+
+    // ✅ Adaptive 계산 + 합의 한도 내 clamp
+    const int hard_cap = std::min<int>(static_cast<int>(MAX_BLOCK_WEIGHT),
+                                       static_cast<int>(consensus.btcbt_max_block_size));
+    const int target = GetAdaptiveMaxBlockWeight(static_cast<size_t>(mp), cur_height, consensus);
+    options.nBlockMaxWeight = std::clamp<int>(target, 4000, hard_cap);
+
+    // 👇 로그
+    LogPrintf("ConfiguredOptions: mp=%d, height=%d, nBlockMaxWeight=%zu (hard_cap=%d)\n",
+              mp, cur_height, static_cast<size_t>(options.nBlockMaxWeight), hard_cap);
+
     return ClampOptions(options);
 }
+// 찾기용 앵커(끝): ConfiguredOptions LOG FIX REPLACE END
+
 
 BlockAssembler::BlockAssembler(Chainstate& chainstate, const CTxMemPool* mempool)
     : BlockAssembler(chainstate, mempool, ConfiguredOptions(mempool, chainstate)) {}
+// 찾기용 앵커(끝): ConfiguredOptions REPLACE END
 
 void BlockAssembler::resetBlock()
 {
@@ -119,6 +202,7 @@ void BlockAssembler::resetBlock()
 }
 
 
+// 찾기용 앵커(시작): CreateNewBlock GUARD INSERT START
 std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock(const CScript& scriptPubKeyIn)
 {
     const auto time_start{SteadyClock::now()};
@@ -129,6 +213,7 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock(const CScript& sc
 
     CBlock* const pblock = &pblocktemplate->block;
     pblock->vtx.emplace_back();
+ // 찾기용 앵커(시작): CreateNewBlock MEMPOOL0 GUARD REPLACE START
     pblocktemplate->vTxFees.push_back(-1);
     pblocktemplate->vTxSigOpsCost.push_back(-1);
 
@@ -137,8 +222,82 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock(const CScript& sc
     assert(pindexPrev != nullptr);
     nHeight = pindexPrev->nHeight + 1;
 
+   // 찾기용 앵커(시작): CreateNewBlock MEMPOOL0 GUARD REPLACE START
+    // ✅ mempool==0 → coinbase-only 템플릿을 즉시 반환(하위 경로 FPE 차단)
+    if (m_mempool == nullptr || m_mempool->size() == 0) {
+        LogPrintf("CreateNewBlock: mempool=0 at height=%d → returning coinbase-only block\n", nHeight);
+
+        // 블록 헤더 기본 설정
+        const auto& consensus_local = chainparams.GetConsensus();
+        pblock->nVersion = m_chainstate.m_chainman.m_versionbitscache.ComputeBlockVersion(pindexPrev, consensus_local);
+        pblock->nTime = static_cast<uint32_t>(pindexPrev->GetMedianTimePast() + 1);
+        UpdateTime(pblock, consensus_local, pindexPrev);
+        // 정규화된 시간 기준으로 난이도 계산
+        pblock->nBits = GetNextWorkRequired(pindexPrev, pblock, consensus_local);
+        pblock->nNonce   = 0;
+
+        // coinbase 생성(수수료=0)
+        CMutableTransaction coinbase_tx;
+        coinbase_tx.vin.resize(1);
+        coinbase_tx.vin[0].prevout.SetNull();
+        coinbase_tx.vin[0].scriptSig = (CScript() << nHeight << OP_0); // BIP34 높이 + 일관성
+        coinbase_tx.vin[0].scriptWitness.stack.resize(1);
+        coinbase_tx.vin[0].scriptWitness.stack[0] = std::vector<unsigned char>(32, 0);
+        coinbase_tx.vout.resize(1);
+        coinbase_tx.vout[0].nValue = GetBlockSubsidy(nHeight, consensus_local);
+        coinbase_tx.vout[0].scriptPubKey = scriptPubKeyIn;
+
+        // coinbase 배치
+        pblock->vtx[0] = MakeTransactionRef(std::move(coinbase_tx));
+
+        // 커밋먼트/머클 루트
+        pblocktemplate->vchCoinbaseCommitment =
+            m_chainstate.m_chainman.GenerateCoinbaseCommitment(*pblock, pindexPrev);
+        pblock->hashMerkleRoot = BlockMerkleRoot(*pblock);
+
+        // ✅ 추가 마무리: 헤더/템플릿 값 정리
+        pblock->hashPrevBlock = pindexPrev->GetBlockHash();                   // (1) prev hash
+        pblocktemplate->vTxFees[0] = 0;                                       // (2) 수수료 슬롯
+        pblocktemplate->vTxSigOpsCost[0] = WITNESS_SCALE_FACTOR *
+                                           GetLegacySigOpCount(*pblock->vtx[0]); // (3) SigOps 기록
+
+        // 최종 템플릿 반환
+        return std::move(pblocktemplate);
+    }
+// 찾기용 앵커(끝): CreateNewBlock MEMPOOL0 GUARD REPLACE END
+
+
+
+    // ✅ (선택) 마지막 가드: 옵션 덮어쓰기 전 안전화(값은 계산·로그만, const m_options는 수정하지 않음)
+    // 찾기용 앵커(시작): CreateNewBlock LOG FIX REPLACE START
+    {
+        const CChainParams& params = chainparams;
+        const auto& consensus = params.GetConsensus();
+        const bool is_regtest = (params.GetChainType() == ChainType::REGTEST);
+        const int mp = (m_mempool ? static_cast<int>(m_mempool->size()) : 0);
+
+        // const m_options를 수정할 수 없으므로, '의도한 값'을 계산해서 현재 값과 비교만 수행
+        size_t desired_weight = 0;
+        if (is_regtest) {
+            desired_weight = static_cast<size_t>(MAX_BLOCK_WEIGHT);
+        } else if (mp == 0) {
+            desired_weight = static_cast<size_t>(DEFAULT_BLOCK_MAX_WEIGHT);
+        } else {
+            const int hard_cap = std::min<int>(static_cast<int>(MAX_BLOCK_WEIGHT),
+                                               static_cast<int>(consensus.btcbt_max_block_size));
+            const int target = GetAdaptiveMaxBlockWeight(static_cast<size_t>(mp), nHeight, consensus);
+            desired_weight = static_cast<size_t>(std::clamp<int>(target, 4000, hard_cap));
+        }
+        // 로그: 현재 값과 의도한 값 비교(필요 시 추적)
+        LogPrintf("CreateNewBlock: mp=%d, height=%d, nBlockMaxWeight(cur)=%zu, desired=%zu\n",
+                  mp, nHeight, static_cast<size_t>(m_options.nBlockMaxWeight), desired_weight);
+    }
+    // 찾기용 앵커(끝): CreateNewBlock LOG FIX REPLACE END
+
     const auto& consensus = chainparams.GetConsensus();
     pblock->nVersion = m_chainstate.m_chainman.m_versionbitscache.ComputeBlockVersion(pindexPrev, consensus);
+// 찾기용 앵커(끝): CreateNewBlock MEMPOOL0 GUARD REPLACE END
+
     if (chainparams.MineBlocksOnDemand()) {
         pblock->nVersion = gArgs.GetIntArg("-blockversion", pblock->nVersion);
     }
