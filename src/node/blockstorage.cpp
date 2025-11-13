@@ -1148,21 +1148,35 @@ void ImportBlocks(ChainstateManager& chainman, std::vector<fs::path> vImportFile
             std::multimap<uint256, FlatFilePos> blocks_with_unknown_parent;
             while (true) {
                 FlatFilePos pos(nFile, 0);
-                if (!fs::exists(chainman.m_blockman.GetBlockPosFilename(pos))) {
-                    break; // No block files left to reindex
-                }
-                CAutoFile file{chainman.m_blockman.OpenBlockFile(pos, true)};
-                if (file.IsNull()) {
-                    break; // This error is logged in OpenBlockFile
-                }
-                LogPrintf("Reindexing block file blk%05u.dat...\n", (unsigned int)nFile);
-                chainman.LoadExternalBlockFile(file, &pos, &blocks_with_unknown_parent);
-                if (chainman.m_interrupt) {
-                    LogPrintf("Interrupt requested. Exit %s\n", __func__);
-                    return;
-                }
-                nFile++;
-            }
+              // [변경] 먼저 파일 경로를 받아와서 변수로 보관
+        const fs::path want = chainman.m_blockman.GetBlockPosFilename(pos);
+
+        // [변경] 존재 여부 확인 + 경로 출력 시 fs::PathToString(want) 사용
+        if (!fs::exists(want)) {
+            LogPrintf("REINDEX: not found %s (nFile=%u) -- stop scanning.\n",
+                      fs::PathToString(want), (unsigned)nFile);
+            break; // No block files left to reindex
+        }
+
+        // [변경] Open 시도 전에 경로 로그 남김 (선택)
+        LogPrintf("REINDEX: try open %s (nFile=%u)\n",
+                  fs::PathToString(want), (unsigned)nFile);
+
+        CAutoFile file{chainman.m_blockman.OpenBlockFile(pos, true)};
+        if (file.IsNull()) {
+            LogPrintf("REINDEX: failed to open %s (nFile=%u) -- OpenBlockFile logged details.\n",
+                      fs::PathToString(want), (unsigned)nFile);
+            break; // This error is logged in OpenBlockFile
+        }
+
+        LogPrintf("Reindexing block file blk%05u.dat...\n", (unsigned int)nFile);
+        chainman.LoadExternalBlockFile(file, &pos, &blocks_with_unknown_parent);
+        if (chainman.m_interrupt) {
+            LogPrintf("Interrupt requested. Exit %s\n", __func__);
+            return;
+        }
+        nFile++;
+    }
             WITH_LOCK(::cs_main, chainman.m_blockman.m_block_tree_db->WriteReindexing(false));
             fReindex = false;
             LogPrintf("Reindexing finished\n");

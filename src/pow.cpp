@@ -31,15 +31,25 @@ unsigned int GetNextWorkRequired(const CBlockIndex* pindexLast,
     Assert(pindexLast != nullptr);
     const int next_height = pindexLast->nHeight + 1;
     const int fork_h      = params.btcbt_fork_block_height;
-        if (next_height <= fork_h) {
+       if (next_height <= fork_h) {
         LogPrintf("POWDBG[REQ]: h=%d fork_h=%d path=LEGACY\n", next_height, fork_h);
-        return GetNextWorkRequired_Legacy(pindexLast, pblock, params);
+        unsigned int ret = GetNextWorkRequired_Legacy(pindexLast, pblock, params);
+        if (ret == 0) {
+            ret = UintToArith256(params.powLimit).GetCompact();
+            LogPrintf("POWDBG[CLAMP]: legacy returned 0 at h=%d -> powLimit=%08x\n", next_height, ret);
+        }
+        return ret;
     }
 LogPrintf("POWDBG[REQ]: h=%d fork_h=%d path=POST_FORK\n", next_height, fork_h);
 
      // (필수) 포크+1 완화: 첫 블록은 powLimit 허용 (체인 부팅용)
     if (next_height == fork_h + 1) {
-        return UintToArith256(params.powLimit).GetCompact();
+        unsigned int ret = UintToArith256(params.powLimit).GetCompact();
+        if (ret == 0) {
+            ret = 0x1d00ffff; // 절대 0이 되지 않는 안전 값
+            LogPrintf("POWDBG[CLAMP]: fork+1 powLimit compact=0 -> fallback=%08x\n", ret);
+        }
+        return ret;
     }
  
     // 포크 후: ASERT 앵커 준비 확인
@@ -49,10 +59,20 @@ LogPrintf("POWDBG[REQ]: h=%d fork_h=%d path=POST_FORK\n", next_height, fork_h);
     if (!asert_ready) {
         LogPrintf("POWDBG[REQ]: h=%d ASERT anchor_ready=0 -> LEGACY\n", next_height);
         // 안전 폴백
-        return GetNextWorkRequired_Legacy(pindexLast, pblock, params);
+        unsigned int ret = GetNextWorkRequired_Legacy(pindexLast, pblock, params);
+        if (ret == 0) {
+            ret = UintToArith256(params.powLimit).GetCompact();
+            LogPrintf("POWDBG[CLAMP]: legacy fallback returned 0 at h=%d -> powLimit=%08x\n", next_height, ret);
+        }
+        return ret;
     }
     // 포크 후 + 앵커 준비 완료 → ASERT
-    return GetNextWorkRequired_ASERT(pindexLast, pblock, params);
+    unsigned int ret = GetNextWorkRequired_ASERT(pindexLast, pblock, params);
+    if (ret == 0) {
+        ret = UintToArith256(params.powLimit).GetCompact();
+        LogPrintf("POWDBG[CLAMP]: ASERT returned 0 at h=%d -> powLimit=%08x\n", next_height, ret);
+    }
+    return ret;
 }
 // ============================================================================
 // (비트코인 레거시) 다음 작업 난이도 계산

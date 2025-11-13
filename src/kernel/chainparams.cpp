@@ -405,31 +405,29 @@ public:
  * blocks can be found instantly.
  */
 
-// ====== 기존 class CBTCBTParams 블록 전체 교체 시작 ======
+// ===== BTCBT: Bitcoin 정통 하드포크 (포크 전 blk 재사용) =====
 class CBTCBTParams : public CChainParams {
 public:
     CBTCBTParams() {
-        // (선택) 여러분이 ChainType::BTCBT 를 추가해두었다면 사용하세요.
-        // m_chain_type = ChainType::BTCBT;
-m_chain_type = ChainType::BTCBT;   // ★ 반드시 명시: 체인 타입 고정
+        // 체인 타입
+        m_chain_type = ChainType::BTCBT;
 
-        // v27은 blk.dat 스캔에 MessageStart를 그대로 사용하므로,
-        // BTC 원본 blk 매직(F9 BE B4 D9)과 동일하게 맞춘다.
+        // ★ 포크 이전의 blk*.dat를 그대로 재사용하기 위해
+        //    비트코인 메인넷과 동일한 메시지/디스크 매직을 강제 고정한다.
         pchMessageStart[0] = 0xF9;
-        pchMessageStart[1] = 0xBE;        pchMessageStart[2] = 0xB4;
+        pchMessageStart[1] = 0xBE;
+        pchMessageStart[2] = 0xB4;
         pchMessageStart[3] = 0xD9;
-
-        // (선택) 명시적으로 디스크 매직도 동일하게 세팅
-        pchDiskMagic[0] = 0xF9;
-        pchDiskMagic[1] = 0xBE;
-        pchDiskMagic[2] = 0xB4;
-        pchDiskMagic[3] = 0xD9;
+        pchDiskMagic[0]    = 0xF9;
+        pchDiskMagic[1]    = 0xBE;
+        pchDiskMagic[2]    = 0xB4;
+        pchDiskMagic[3]    = 0xD9;
 
         // 포트/프루닝
         nDefaultPort = 8333;
         nPruneAfterHeight = 100000;
 
-        // ===== BTCBT 포크/합의 파라미터 =====
+        // ===== 합의 파라미터 =====
         consensus.signet_blocks = false;
         consensus.signet_challenge.clear();
 
@@ -437,18 +435,17 @@ m_chain_type = ChainType::BTCBT;   // ★ 반드시 명시: 체인 타입 고정
         consensus.btcbt_fork_block_height = 903844;
         consensus.btcbt_fork_block_hash   = uint256S("000000000000000000015f4b69129c42068a384d79b7693efd426a369b865fa9");
 
-        // 포크 이후 규칙
+        // 포크 이후 BTCBT 규칙
         consensus.btcbt_block_interval         = 5 * 60;        // 5분
         consensus.btcbt_halving_interval       = 210000;        // 약 2년
         consensus.btcbt_max_block_size         = 32'000'000;    // 32 MB
         consensus.btcbt_max_block_sigops_cost  = 320000;
 
-        // ASERT 난이도 앵커 (포크 시점)
+        // ASERT 앵커 (포크 시점)
         consensus.btcbt_asert_anchor_height = 903844;
         consensus.btcbt_asert_anchor_hash   = uint256S("000000000000000000015f4b69129c42068a384d79b7693efd426a369b865fa9");
         consensus.btcbt_asert_anchor_bits   = 0x17026816;
-
-        // 포크 이전(=BTC 레거시 구간)은 BTC 값 유지
+        // 포크 이전(레거시 BTC 구간) 파라미터
         consensus.nSubsidyHalvingInterval = 210000;
         consensus.nPowTargetSpacing       = 10 * 60;
         consensus.nPowTargetTimespan      = 14 * 24 * 60 * 60;
@@ -456,7 +453,7 @@ m_chain_type = ChainType::BTCBT;   // ★ 반드시 명시: 체인 타입 고정
         consensus.fPowNoRetargeting = false;
         consensus.powLimit = uint256S("00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
 
-        // 레거시 BIP/버리드 배포 높이 (BTC 기준 유지)
+        // 레거시 BIP/버리드 배포 높이 (BTC 값 유지)
         consensus.BIP34Height = 227931;
         consensus.BIP34Hash   = uint256S("0x00000000000002d01c5a6e2cbd2f3b98ae16c5e12a9dc9e3bd2963e4b1f7f5b4");
         consensus.BIP65Height = 388381;
@@ -476,16 +473,15 @@ m_chain_type = ChainType::BTCBT;   // ★ 반드시 명시: 체인 타입 고정
             .min_activation_height = 0,
         };
 
-        // Taproot 상시 활성(최소 활성 높이는 포크 블록에 정렬)
-       consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].bit = 2;
-consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nStartTime = 1622160000; // 2021-05-28
-consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nTimeout   = 1635638400; // 2021-10-31
-consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].min_activation_height = 709632;
+        // Taproot (BTC 기준 값 유지)
+        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].bit = 2;
+        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nStartTime = 1622160000; // 2021-05-28
+        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nTimeout   = 1635638400; // 2021-10-31
+        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].min_activation_height = 709632;
 
-        // assumeutxo/assumevalid 초기 비움
+        // assumeutxo/assumevalid 초기화
         consensus.nMinimumChainWork = uint256{};
         consensus.defaultAssumeValid = uint256{};
-
         m_assumed_blockchain_size = 0;
         m_assumed_chain_state_size = 0;
 
@@ -495,35 +491,28 @@ consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].min_activation_height = 70
         assert(consensus.hashGenesisBlock == uint256S("0x000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f"));
         assert(genesis.hashMerkleRoot == uint256S("0x4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b"));
 
-        // 주소 프리픽스: P2PKH/P2SH/비밀키는 BTC와 동일 유지(하드포크 호환),
-        // Bech32 HRP만 BTCBT 고유값으로 구분 (bcbt 권장)
+        // 주소 프리픽스: BTC와 동일 유지 (하드포크 호환)
         base58Prefixes[PUBKEY_ADDRESS] = std::vector<unsigned char>(1, 0);
         base58Prefixes[SCRIPT_ADDRESS] = std::vector<unsigned char>(1, 5);
         base58Prefixes[SECRET_KEY]     = std::vector<unsigned char>(1, 128);
         base58Prefixes[EXT_PUBLIC_KEY] = std::vector<unsigned char>{0x04, 0x88, 0xB2, 0x1E};
         base58Prefixes[EXT_SECRET_KEY] = std::vector<unsigned char>{0x04, 0x88, 0xAD, 0xE4};
 
-        // 고유 HRP
+        // HRP만 고유 식별자
         bech32_hrp = "bcbt";
 
-        // 부트스트랩을 위해 초기에는 시드를 비워둡니다.
+        // 부트스트랩 시드 비움
         vSeeds.clear();
         vFixedSeeds.clear();
 
         fDefaultConsistencyChecks = false;
         m_is_mockable_chain = false;
 
-        checkpointData = {
-            {
-                {0, consensus.hashGenesisBlock},
-            }
-        };
-
+        checkpointData = { { {0, consensus.hashGenesisBlock}, } };
         m_assumeutxo_data = {};
         chainTxData = {0, 0, 0.0};
     }
 };
-// ====== 기존 class CBTCBTParams 블록 전체 교체 끝 ======
 
 class CRegTestParams : public CChainParams
 {

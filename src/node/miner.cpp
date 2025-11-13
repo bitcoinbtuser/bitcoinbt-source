@@ -337,7 +337,12 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock(const CScript& sc
 
     pblock->hashPrevBlock = pindexPrev->GetBlockHash();
     UpdateTime(pblock, consensus, pindexPrev);
-    pblock->nBits = GetNextWorkRequired(pindexPrev, pblock, consensus);
+     pblock->nBits = GetNextWorkRequired(pindexPrev, pblock, consensus);
+    if (pblock->nBits == 0) {
+        const unsigned int clamp = UintToArith256(consensus.powLimit).GetCompact();
+        pblock->nBits = clamp ? clamp : 0x1d00ffff;
+        LogPrintf("POWDBG[CLAMP2]: template nBits==0 at height=%d -> set=%08x\n", nHeight, pblock->nBits);
+    }
     pblock->nNonce = 0;
     pblocktemplate->vTxSigOpsCost[0] = WITNESS_SCALE_FACTOR * GetLegacySigOpCount(*pblock->vtx[0]);
 
