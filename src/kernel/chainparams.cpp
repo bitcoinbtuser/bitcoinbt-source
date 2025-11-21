@@ -412,16 +412,15 @@ public:
         // 체인 타입
         m_chain_type = ChainType::BTCBT;
 
-        // ★ 포크 이전의 blk*.dat를 그대로 재사용하기 위해
-        //    비트코인 메인넷과 동일한 메시지/디스크 매직을 강제 고정한다.
-        pchMessageStart[0] = 0xF9;
-        pchMessageStart[1] = 0xBE;
-        pchMessageStart[2] = 0xB4;
-        pchMessageStart[3] = 0xD9;
-        pchDiskMagic[0]    = 0xF9;
-        pchDiskMagic[1]    = 0xBE;
-        pchDiskMagic[2]    = 0xB4;
-        pchDiskMagic[3]    = 0xD9;
+        // ★ BTCBT 전용 메시지/디스크 매직 (validation.cpp 의 MAGIC_BTCBT와 반드시 동일해야 함)
+        pchMessageStart[0] = 0xA3;
+        pchMessageStart[1] = 0xB1;
+        pchMessageStart[2] = 0xC5;
+        pchMessageStart[3] = 0xD7;
+        pchDiskMagic[0]    = 0xA3;
+        pchDiskMagic[1]    = 0xB1;
+        pchDiskMagic[2]    = 0xC5;
+        pchDiskMagic[3]    = 0xD7;
 
         // 포트/프루닝
         nDefaultPort = 8333;
@@ -435,18 +434,24 @@ public:
         consensus.btcbt_fork_block_height = 903844;
         consensus.btcbt_fork_block_hash   = uint256S("000000000000000000015f4b69129c42068a384d79b7693efd426a369b865fa9");
 
-        // 포크 이후 BTCBT 규칙
+                // 포크 이후 BTCBT 규칙
         consensus.btcbt_block_interval         = 5 * 60;        // 5분
         consensus.btcbt_halving_interval       = 210000;        // 약 2년
         consensus.btcbt_max_block_size         = 32'000'000;    // 32 MB
         consensus.btcbt_max_block_sigops_cost  = 320000;
 
-        // ASERT 앵커 (포크 시점)
-        consensus.btcbt_asert_anchor_height = 903844;
-        consensus.btcbt_asert_anchor_hash   = uint256S("000000000000000000015f4b69129c42068a384d79b7693efd426a369b865fa9");
-        consensus.btcbt_asert_anchor_bits   = 0x17026816;
+        // ASERT 앵커 (공식 메인넷 런칭 시점용)
+        //
+        //  - fork height(903,844)는 그대로 유지 (비트코인 정통 하드포크)
+        //  - 앵커는 BTCBT 첫 블록인 fork+1(=903,845) 높이에 둔다.
+        //  - 앵커 시간은 실제 903,845 블록 헤더의 nTime을 사용 (코드에서 따로 안 가짐)
+        //  - bits는 초기 난이도를 powLimit(0x1d00ffff) 수준으로 설정
+        consensus.btcbt_asert_anchor_height = 903845;
+        consensus.btcbt_asert_anchor_hash   = uint256{};      // ASERT 로직에서 해시는 사용하지 않음 (기록용 placeholder)
+        consensus.btcbt_asert_anchor_bits   = 0x1d00ffff;     // powLimit 기반 초기 난이도
         // 포크 이전(레거시 BTC 구간) 파라미터
         consensus.nSubsidyHalvingInterval = 210000;
+
         consensus.nPowTargetSpacing       = 10 * 60;
         consensus.nPowTargetTimespan      = 14 * 24 * 60 * 60;
         consensus.fPowAllowMinDifficultyBlocks = false;
