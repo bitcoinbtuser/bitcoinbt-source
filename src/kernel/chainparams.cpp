@@ -503,11 +503,15 @@ public:
         base58Prefixes[EXT_PUBLIC_KEY] = std::vector<unsigned char>{0x04, 0x88, 0xB2, 0x1E};
         base58Prefixes[EXT_SECRET_KEY] = std::vector<unsigned char>{0x04, 0x88, 0xAD, 0xE4};
 
-        // HRP만 고유 식별자
+               // HRP만 고유 식별자
         bech32_hrp = "bcbt";
 
-        // 부트스트랩 시드 비움
+        // BTCBT 메인넷 DNS seed (비트코인처럼 자동 부트스트랩)
         vSeeds.clear();
+        vSeeds.emplace_back("seed1.bitcoinbt.xyz.");
+        vSeeds.emplace_back("seed2.bitcoinbt.xyz."); // 나중에 2번 시드 서버 열 때 사용
+
+        // Fixed seeds (추후 chainparamsseeds.h 에 BTCBT 전용 시드 추가 가능)
         vFixedSeeds.clear();
 
         fDefaultConsistencyChecks = false;
@@ -518,6 +522,7 @@ public:
         chainTxData = {0, 0, 0.0};
     }
 };
+
 
 class CRegTestParams : public CChainParams
 {
