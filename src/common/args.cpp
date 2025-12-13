@@ -161,6 +161,7 @@ std::list<SectionInfo> ArgsManager::GetUnrecognizedSections() const
         ChainTypeToString(ChainType::SIGNET),
         ChainTypeToString(ChainType::TESTNET),
         ChainTypeToString(ChainType::MAIN),
+        ChainTypeToString(ChainType::BTCBT),   // ✅ 추가: [btcbt] 섹션 인식
     };
 
     LOCK(cs_args);
