@@ -645,17 +645,18 @@ private:
          * validation is successful and the original transactions are removed. */
         std::list<CTransactionRef> m_replaced_transactions;
 
-        /** Virtual size of the transaction as used by the mempool, calculated using serialized size
+               /** Virtual size of the transaction as used by the mempool, calculated using serialized size
          * of the transaction and sigops. */
-        int64_t m_vsize;
+        int64_t m_vsize{0};
         /** Fees paid by this transaction: total input amounts subtracted by total output amounts. */
-        CAmount m_base_fees;
+        CAmount m_base_fees{0};
         /** Base fees + any fee delta set by the user with prioritisetransaction. */
-        CAmount m_modified_fees;
+        CAmount m_modified_fees{0};
         /** Total modified fees of all transactions being replaced. */
         CAmount m_conflicting_fees{0};
         /** Total virtual size of all transactions being replaced. */
         size_t m_conflicting_size{0};
+
 
         /** If we're doing package validation (i.e. m_package_feerates=true), the "effective"
          * package feerate of this transaction is the total fees divided by the total size of
@@ -864,32 +865,24 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
         return state.Invalid(TxValidationResult::TX_PREMATURE_SPEND, "non-BIP68-final");
     }
 
-    // The mempool holds txs for the next block, so pass height+1 to CheckTxInputs
+       // The mempool holds txs for the next block, so pass height+1 to CheckTxInputs
     if (!Consensus::CheckTxInputs(tx, state, m_view, m_active_chainstate.m_chain.Height() + 1, ws.m_base_fees)) {
         return false; // state filled in by CheckTxInputs
     }
+
+        // [BTCBT FIX] Ensure vsize/fees are initialized for mempool policy checks (min relay fee etc.)
+    ws.m_vsize = GetVirtualTransactionSize(tx);
+    ws.m_modified_fees = ws.m_base_fees;
 
     if (m_pool.m_require_standard && !AreInputsStandard(tx, m_view)) {
         return state.Invalid(TxValidationResult::TX_INPUTS_NOT_STANDARD, "bad-txns-nonstandard-inputs");
     }
 
-    // Check for non-standard witnesses.
-    if (tx.HasWitness() && m_pool.m_require_standard && !IsWitnessStandard(tx, m_view)) {
-        return state.Invalid(TxValidationResult::TX_WITNESS_MUTATED, "bad-witness-nonstandard");
+    const int64_t nSigOpsCost = GetTransactionSigOpCost(tx, m_view, STANDARD_SCRIPT_VERIFY_FLAGS);
+    if (nSigOpsCost > MAX_STANDARD_TX_SIGOPS_COST) {
+        return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "bad-txns-too-many-sigops",
+                             strprintf("%d", nSigOpsCost));
     }
-
-   int64_t nSigOpsCost = GetTransactionSigOpCost(tx, m_view, STANDARD_SCRIPT_VERIFY_FLAGS);
-
-// ⬇️ 기존 코드 삭제 또는 주석 처리]
-// if (nSigOpsCost > MAX_STANDARD_TX_SIGOPS_COST)
-//     return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "bad-txns-too-many-sigops",
-//             strprintf("%d", nSigOpsCost));
-
-// [✅ 새 코드 삽입]
-int64_t maxTxSigOps = MAX_STANDARD_TX_SIGOPS_COST;
-if (nSigOpsCost > maxTxSigOps) {
-    return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "bad-tx-sigops");
-}
 
     // No individual transactions are allowed below the min relay feerate except from disconnected blocks.
     // This requirement, unlike CheckFeeRate, cannot be bypassed using m_package_feerates because,
@@ -910,51 +903,55 @@ if (nSigOpsCost > maxTxSigOps) {
     }
 
 
-    if (!bypass_limits && !args.m_package_feerates && !CheckFeeRate(ws.m_vsize, ws.m_modified_fees, state)) return false;
+  if (!bypass_limits && !args.m_package_feerates && !CheckFeeRate(ws.m_vsize, ws.m_modified_fees, state)) return false;
 
-    ws.m_iters_conflicting = m_pool.GetIterSet(ws.m_conflicts);
+ws.m_iters_conflicting = m_pool.GetIterSet(ws.m_conflicts);
 
-    // Note that these modifications are only applicable to single transaction scenarios;
-    // carve-outs and package RBF are disabled for multi-transaction evaluations.
-    CTxMemPool::Limits maybe_rbf_limits = m_pool.m_limits;
+// Note that these modifications are only applicable to single transaction scenarios;
+// carve-outs and package RBF are disabled for multi-transaction evaluations.
+CTxMemPool::Limits maybe_rbf_limits = m_pool.m_limits;
 
-    // Calculate in-mempool ancestors, up to a limit.
-    if (ws.m_conflicts.size() == 1) {
-        // In general, when we receive an RBF transaction with mempool conflicts, we want to know whether we
-        // would meet the chain limits after the conflicts have been removed. However, there isn't a practical
-        // way to do this short of calculating the ancestor and descendant sets with an overlay cache of
-        // changed mempool entries. Due to both implementation and runtime complexity concerns, this isn't
-        // very realistic, thus we only ensure a limited set of transactions are RBF'able despite mempool
-        // conflicts here. Importantly, we need to ensure that some transactions which were accepted using
-        // the below carve-out are able to be RBF'ed, without impacting the security the carve-out provides
-        // for off-chain contract systems (see link in the comment below).
-        //
-        // Specifically, the subset of RBF transactions which we allow despite chain limits are those which
-        // conflict directly with exactly one other transaction (but may evict children of said transaction),
-        // and which are not adding any new mempool dependencies. Note that the "no new mempool dependencies"
-        // check is accomplished later, so we don't bother doing anything about it here, but if our
-        // policy changes, we may need to move that check to here instead of removing it wholesale.
-        //
-        // Such transactions are clearly not merging any existing packages, so we are only concerned with
-        // ensuring that (a) no package is growing past the package size (not count) limits and (b) we are
-        // not allowing something to effectively use the (below) carve-out spot when it shouldn't be allowed
-        // to.
-        //
-        // To check these we first check if we meet the RBF criteria, above, and increment the descendant
-        // limits by the direct conflict and its descendants (as these are recalculated in
-        // CalculateMempoolAncestors by assuming the new transaction being added is a new descendant, with no
-        // removals, of each parent's existing dependent set). The ancestor count limits are unmodified (as
-        // the ancestor limits should be the same for both our new transaction and any conflicts).
-        // We don't bother incrementing m_limit_descendants by the full removal count as that limit never comes
-        // into force here (as we're only adding a single transaction).
-        assert(ws.m_iters_conflicting.size() == 1);
-        CTxMemPool::txiter conflict = *ws.m_iters_conflicting.begin();
+// Calculate in-mempool ancestors, up to a limit.
+if (ws.m_conflicts.size() == 1) {
+    assert(ws.m_iters_conflicting.size() == 1);
+    CTxMemPool::txiter conflict = *ws.m_iters_conflicting.begin();
 
-        maybe_rbf_limits.descendant_count += 1;
-        maybe_rbf_limits.descendant_size_vbytes += conflict->GetSizeWithDescendants();
+    maybe_rbf_limits.descendant_count += 1;
+    maybe_rbf_limits.descendant_size_vbytes += conflict->GetSizeWithDescendants();
+}
+
+// ===== BTCBT FIX: 반드시 entry를 만들어서 CalculateMemPoolAncestors에 넘긴다 =====
+// (네 gdb 크래시의 직접 원인: entry == NULL 인데 *entry 역참조)
+if (!entry) {
+    const int64_t accept_time = GetTime();
+
+    bool spends_coinbase = false;
+    for (const CTxIn& txin : tx.vin) {
+        const Coin& coin = m_view.AccessCoin(txin.prevout);
+        if (!coin.IsSpent() && coin.IsCoinBase()) {
+            spends_coinbase = true;
+            break;
+        }
     }
 
-    auto ancestors{m_pool.CalculateMemPoolAncestors(*entry, maybe_rbf_limits)};
+    const uint64_t entry_sequence = m_pool.GetAndIncrementSequence();
+
+    // v26 스타일 ctor: (txref, fee, time, entry_height, entry_sequence, spends_coinbase, sigops_cost, lockpoints)
+    entry = std::make_unique<CTxMemPoolEntry>(
+        ws.m_ptx,
+        ws.m_modified_fees,                  // policy용 fee (modified fee 사용)
+        accept_time,
+        m_active_chainstate.m_chain.Height(),
+        entry_sequence,
+        spends_coinbase,
+        nSigOpsCost,
+        *lock_points
+    );
+}
+
+auto ancestors{m_pool.CalculateMemPoolAncestors(*entry, maybe_rbf_limits)};
+
+
     if (!ancestors) {
         // If CalculateMemPoolAncestors fails second time, we want the original error string.
         // Contracting/payment channels CPFP carve-out:
