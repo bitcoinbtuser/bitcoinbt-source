@@ -35,15 +35,31 @@ HelpMessageDialog::HelpMessageDialog(QWidget *parent, bool about) :
 {
     ui->setupUi(this);
 
-    QString version = QString{PACKAGE_NAME} + " " + tr("version") + " " + QString::fromStdString(FormatFullVersion());
+        QString version = QString{PACKAGE_NAME} + " " + tr("version") + " " + QString::fromStdString(FormatFullVersion());
 
     if (about)
     {
         setWindowTitle(tr("About %1").arg(PACKAGE_NAME));
 
         std::string licenseInfo = LicenseInfo();
+
+        auto replace_all = [](std::string& s, const std::string& from, const std::string& to) {
+            if (from.empty()) return;
+            size_t pos{0};
+            while ((pos = s.find(from, pos)) != std::string::npos) {
+                s.replace(pos, from.size(), to);
+                pos += to.size();
+            }
+        };
+
+        // GUI About 창에 표시되는 라이선스/설명 텍스트 브랜딩 정리
+        replace_all(licenseInfo, "Bitcoin Core", "BitcoinBT");
+        replace_all(licenseInfo, "Bitcoin-Qt", "BitcoinBT-Qt");
+        replace_all(licenseInfo, "bitcoincore.org", "bitcoinbt.xyz");
+        replace_all(licenseInfo, "bitcoin.org", "bitcoinbt.xyz");
+
         /// HTML-format the license message from the core
-        QString licenseInfoHTML = QString::fromStdString(LicenseInfo());
+        QString licenseInfoHTML = QString::fromStdString(licenseInfo);
         // Make URLs clickable
         QRegularExpression uri(QStringLiteral("<(.*)>"), QRegularExpression::InvertedGreedinessOption);
         licenseInfoHTML.replace(uri, QStringLiteral("<a href=\"\\1\">\\1</a>"));
@@ -58,10 +74,13 @@ HelpMessageDialog::HelpMessageDialog(QWidget *parent, bool about) :
         ui->helpMessage->setVisible(false);
     } else {
         setWindowTitle(tr("Command-line options"));
-        QString header = "Usage:  bitcoin-qt [command-line options]                     \n";
+        QString header = "Usage:  bitcoinbt-qt [command-line options]                     \n";
+
+
         QTextCursor cursor(ui->helpMessage->document());
         cursor.insertText(version);
         cursor.insertBlock();
+
         cursor.insertText(header);
         cursor.insertBlock();
 
@@ -81,6 +100,8 @@ HelpMessageDialog::HelpMessageDialog(QWidget *parent, bool about) :
         bold.setFontWeight(QFont::Bold);
 
         for (const QString &line : coreOptions.split("\n")) {
+            // (이 아래 원본 로직 그대로)
+
             if (line.startsWith("  -"))
             {
                 cursor.currentTable()->appendRows(1);

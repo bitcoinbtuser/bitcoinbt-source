@@ -37,7 +37,19 @@
 #include <QUrlQuery>
 
 const int BITCOIN_IPC_CONNECT_TIMEOUT = 1000; // milliseconds
-const QString BITCOIN_IPC_PREFIX("bitcoin:");
+static const QStringList URI_IPC_PREFIXES{
+    QStringLiteral("bitcoin:"),
+    QStringLiteral("bitcoinbt:"),
+    QStringLiteral("btcbt:")
+};
+
+static bool HasKnownURIPrefix(const QString& s)
+{
+    for (const auto& p : URI_IPC_PREFIXES) {
+        if (s.startsWith(p, Qt::CaseInsensitive)) return true;
+    }
+    return false;
+}
 
 //
 // Create a name that is unique for:
@@ -46,7 +58,7 @@ const QString BITCOIN_IPC_PREFIX("bitcoin:");
 //
 static QString ipcServerName()
 {
-    QString name("BitcoinQt");
+    QString name("BitcoinBTQt");
 
     // Append a simple hash of the datadir
     // Note that gArgs.GetDataDirNet() returns a different path
@@ -80,7 +92,7 @@ void PaymentServer::ipcParseCommandLine(int argc, char* argv[])
         QString arg(argv[i]);
         if (arg.startsWith("-")) continue;
 
-        if (arg.startsWith(BITCOIN_IPC_PREFIX, Qt::CaseInsensitive)) // bitcoin: URI
+        if (HasKnownURIPrefix(arg)) // bitcoin: / bitcoinbt: / btcbt:
         {
             savedPaymentRequests.insert(arg);
         }
@@ -147,7 +159,7 @@ PaymentServer::PaymentServer(QObject* parent, bool startLocalServer)
         if (!uriServer->listen(name)) {
             // constructor is called early in init, so don't use "Q_EMIT message()" here
             QMessageBox::critical(nullptr, tr("Payment request error"),
-                tr("Cannot start bitcoin: click-to-pay handler"));
+                tr("Cannot start BitcoinBT: click-to-pay handler"));
         }
         else {
             connect(uriServer, &QLocalServer::newConnection, this, &PaymentServer::handleURIConnection);
@@ -193,12 +205,14 @@ void PaymentServer::handleURIOrFile(const QString& s)
         return;
     }
 
-    if (s.startsWith("bitcoin://", Qt::CaseInsensitive))
+      if (s.startsWith("bitcoin://", Qt::CaseInsensitive) ||
+        s.startsWith("bitcoinbt://", Qt::CaseInsensitive) ||
+        s.startsWith("btcbt://", Qt::CaseInsensitive))
     {
-        Q_EMIT message(tr("URI handling"), tr("'bitcoin://' is not a valid URI. Use 'bitcoin:' instead."),
-            CClientUIInterface::MSG_ERROR);
+        Q_EMIT message(tr("URI handling"), tr("'<scheme>://' is not a valid URI. Use '<scheme>:' instead."),
+             CClientUIInterface::MSG_ERROR);
     }
-    else if (s.startsWith(BITCOIN_IPC_PREFIX, Qt::CaseInsensitive)) // bitcoin: URI
+    else if (HasKnownURIPrefix(s)) // bitcoin: / bitcoinbt: / btcbt:
     {
         QUrlQuery uri((QUrl(s)));
         // normal URI
@@ -225,7 +239,7 @@ void PaymentServer::handleURIOrFile(const QString& s)
             }
             else
                 Q_EMIT message(tr("URI handling"),
-                    tr("URI cannot be parsed! This can be caused by an invalid Bitcoin address or malformed URI parameters."),
+                    tr("URI cannot be parsed! This can be caused by an invalid BitcoinBT address or malformed URI parameters."),
                     CClientUIInterface::ICON_WARNING);
 
             return;
