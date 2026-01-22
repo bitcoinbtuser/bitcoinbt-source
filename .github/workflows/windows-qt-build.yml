@@ -1,0 +1,62 @@
+name: Build Windows bitcoin-qt.exe (MSYS2)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  win-qt:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install MSYS2 + Qt
+      uses: msys2/setup-msys2@v2
+      with:
+        msystem: MINGW64
+        update: true
+        install: >-
+          git
+          make
+          autoconf
+          automake
+          libtool
+          pkgconf
+          mingw-w64-x86_64-toolchain
+          mingw-w64-x86_64-qt5
+          mingw-w64-x86_64-qt5-tools
+          mingw-w64-x86_64-boost
+          mingw-w64-x86_64-libevent
+          mingw-w64-x86_64-miniupnpc
+          mingw-w64-x86_64-zeromq
+          mingw-w64-x86_64-qrencode
+
+    - name: Configure
+      run: |
+        set -euxo pipefail
+        ./autogen.sh
+        ./configure --host=x86_64-w64-mingw32 --with-gui=qt5 --disable-wallet
+
+    - name: Build
+      run: |
+        set -euxo pipefail
+        make -j"$(nproc)"
+        ls -la src/qt/bitcoin-qt.exe
+
+    - name: Package
+      run: |
+        set -euxo pipefail
+        rm -rf dist
+        mkdir dist
+        cp src/qt/bitcoin-qt.exe dist/bitcoin-qt.exe
+        /mingw64/bin/windeployqt.exe --release --no-translations --compiler-runtime dist/bitcoin-qt.exe
+        powershell -NoProfile -Command "Compress-Archive -Path dist\* -DestinationPath bitcoinbt-qt-win64.zip"
+
+    - name: Upload ZIP
+      uses: actions/upload-artifact@v4
+      with:
+        name: bitcoinbt-qt-win64
+        path: bitcoinbt-qt-win64.zip
