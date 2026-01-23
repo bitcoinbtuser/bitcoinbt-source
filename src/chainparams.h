@@ -9,7 +9,8 @@
 #include <kernel/chainparams.h> // IWYU pragma: export
 
 #include <memory>
-
+#include <cstdint>
+#include <string>
 class ArgsManager;
 
 /**
