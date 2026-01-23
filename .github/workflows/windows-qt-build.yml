@@ -27,6 +27,7 @@ jobs:
           pkgconf
           mingw-w64-x86_64-toolchain
           mingw-w64-x86_64-qt5
+          mingw-w64-x86_64-qt5-base
           mingw-w64-x86_64-qt5-tools
           mingw-w64-x86_64-boost
           mingw-w64-x86_64-libevent
@@ -37,6 +38,9 @@ jobs:
     - name: Configure
       run: |
         set -euxo pipefail
+        export PATH="/mingw64/bin:$PATH"
+        which moc || true
+        ls -la /mingw64/bin/moc* || true
         ./autogen.sh
         ./configure --host=x86_64-w64-mingw32 --with-gui=qt5 --disable-wallet
 
