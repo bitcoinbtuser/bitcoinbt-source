@@ -36,7 +36,6 @@ jobs:
             mingw-w64-x86_64-qt5-translations
             mingw-w64-x86_64-boost
             mingw-w64-x86_64-libevent
-            mingw-w64-x86_64-miniupnpc
             mingw-w64-x86_64-zeromq
             mingw-w64-x86_64-qrencode
 
@@ -88,7 +87,8 @@ jobs:
               --disable-wallet \
               --disable-tests \
               --disable-bench \
-              --disable-fuzz-binary
+              --disable-fuzz-binary \
+              --without-miniupnpc
 
       - name: Build (bitcoin-qt.exe)
         run: |
