@@ -13,7 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup MSYS2 (MINGW64) + install deps (minimal for Qt GUI)
+      - name: Setup MSYS2 (MINGW64) + install deps
         uses: msys2/setup-msys2@v2
         with:
           msystem: MINGW64
@@ -23,7 +23,6 @@ jobs:
             autoconf
             automake
             libtool
-            pkgconf
             make
             mingw-w64-x86_64-gcc
             mingw-w64-x86_64-binutils
@@ -37,38 +36,53 @@ jobs:
             mingw-w64-x86_64-libevent
             mingw-w64-x86_64-qrencode
 
-      - name: Verify toolchain + Qt tools
+      - name: Verify toolchain + Qt libs + pkg-config results
         run: |
           set -euxo pipefail
-          export PATH="/mingw64/bin:$PATH"
-          export PKG_CONFIG_PATH="/mingw64/lib/pkgconfig:/mingw64/share/pkgconfig"
-
-          which gcc g++ ld pkg-config
-          pkg-config --version
-
-          ls -la /mingw64/bin/moc.exe
-          ls -la /mingw64/bin/uic.exe
-          ls -la /mingw64/bin/rcc.exe
-
-          ls -la /mingw64/bin/lrelease-qt5.exe || ls -la /mingw64/bin/lrelease.exe
-          ls -la /mingw64/bin/windeployqt-qt5.exe || ls -la /mingw64/bin/windeployqt.exe
-
-          # Qt libs 존재 확인(동적 링크 기준: *.dll.a 또는 *.a가 있어야 함)
-          ls -la /mingw64/lib/libQt5Core* || true
-          ls -la /mingw64/lib/libQt5Widgets* || true
-          ls -la /mingw64/lib/libQt5Gui* || true
-          ls -la /mingw64/lib/libQt5Network* || true
-          ls -la /mingw64/lib/libQt5DBus* || true
-
-      - name: Configure (Qt tool paths, ZMQ/UPnP OFF for easiest CI)
-        run: |
-          set -euxo pipefail
-          export PATH="/mingw64/bin:$PATH"
-          export PKG_CONFIG_PATH="/mingw64/lib/pkgconfig:/mingw64/share/pkgconfig"
+          export PATH="/mingw64/bin:/usr/bin:/bin"
           export PKG_CONFIG="/mingw64/bin/pkg-config"
+          export PKG_CONFIG_PATH="/mingw64/lib/pkgconfig:/mingw64/share/pkgconfig"
+          export PKG_CONFIG_LIBDIR="/mingw64/lib/pkgconfig:/mingw64/share/pkgconfig"
+
+          echo "which pkg-config: $(which pkg-config)"
+          "$PKG_CONFIG" --version
+
+          # Qt tools
+          test -x /mingw64/bin/moc.exe
+          test -x /mingw64/bin/uic.exe
+          test -x /mingw64/bin/rcc.exe
+
+          # lrelease / windeployqt (이름이 -qt5일 수 있음)
+          ls -la /mingw64/bin/lrelease*.exe || true
+          ls -la /mingw64/bin/windeployqt*.exe || true
+
+          # Qt import libs 존재 확인 (중요)
+          ls -la /mingw64/lib/libQt5Core*.a
+          ls -la /mingw64/lib/libQt5Gui*.a
+          ls -la /mingw64/lib/libQt5Widgets*.a
+          ls -la /mingw64/lib/libQt5Network*.a
+          ls -la /mingw64/lib/libQt5DBus*.a
+
+          # qrencode import lib 존재 확인
+          ls -la /mingw64/lib/libqrencode*.a
+
+          # pkg-config가 실제로 -L/mingw64/lib을 내놓는지 확인 (중요)
+          "$PKG_CONFIG" --libs Qt5Core
+          "$PKG_CONFIG" --libs Qt5Widgets
+          "$PKG_CONFIG" --libs Qt5Network
+          "$PKG_CONFIG" --libs libqrencode || "$PKG_CONFIG" --libs qrencode || true
+
+      - name: Configure (force Qt dirs + tool paths)
+        run: |
+          set -euxo pipefail
+          export PATH="/mingw64/bin:/usr/bin:/bin"
+          export PKG_CONFIG="/mingw64/bin/pkg-config"
+          export PKG_CONFIG_PATH="/mingw64/lib/pkgconfig:/mingw64/share/pkgconfig"
+          export PKG_CONFIG_LIBDIR="/mingw64/lib/pkgconfig:/mingw64/share/pkgconfig"
 
           ./autogen.sh
 
+          # Qt tools
           MOC=/mingw64/bin/moc.exe
           UIC=/mingw64/bin/uic.exe
           RCC=/mingw64/bin/rcc.exe
@@ -84,7 +98,7 @@ jobs:
           test -x "$RCC"
           test -x "$LRELEASE"
 
-          # 링커가 /mingw64/lib을 확실히 보게 고정(가끔 -lQt5Core 못 찾는 케이스 방지)
+          # 링커가 Qt/qrencode import lib를 무조건 보게 강제
           export LDFLAGS="-L/mingw64/lib"
           export CPPFLAGS="-I/mingw64/include"
 
@@ -97,19 +111,24 @@ jobs:
               --disable-bench \
               --disable-fuzz-binary \
               --disable-zmq \
-              --without-miniupnpc
+              --without-miniupnpc \
+              --with-qt-bindir=/mingw64/bin \
+              --with-qt-incdir=/mingw64/include \
+              --with-qt-libdir=/mingw64/lib \
+              --with-qt-translationdir=/mingw64/share/qt5/translations \
+              --with-qt-plugindir=/mingw64/share/qt5/plugins
 
       - name: Build (bitcoin-qt.exe)
         run: |
           set -euxo pipefail
-          export PATH="/mingw64/bin:$PATH"
+          export PATH="/mingw64/bin:/usr/bin:/bin"
           make -j"$(nproc)"
           ls -la src/qt/bitcoin-qt.exe
 
       - name: Package (windeployqt + zip)
         run: |
           set -euxo pipefail
-          export PATH="/mingw64/bin:$PATH"
+          export PATH="/mingw64/bin:/usr/bin:/bin"
 
           if [ -x /mingw64/bin/windeployqt-qt5.exe ]; then
             WINDEPLOYQT=/mingw64/bin/windeployqt-qt5.exe
