@@ -12,9 +12,10 @@ jobs:
         shell: msys2 {0}
 
     steps:
-    - uses: actions/checkout@v4
+    - name: Checkout
+      uses: actions/checkout@v4
 
-    - name: Install MSYS2 + Qt (MINGW64)
+    - name: Setup MSYS2 (MINGW64) + install deps (NO groups)
       uses: msys2/setup-msys2@v2
       with:
         msystem: MINGW64
@@ -26,13 +27,17 @@ jobs:
           automake
           libtool
           pkgconf
-          mingw-w64-x86_64-toolchain
-          mingw-w64-x86_64-qt5
+
+          mingw-w64-x86_64-gcc
+          mingw-w64-x86_64-binutils
+          mingw-w64-x86_64-make
+          mingw-w64-x86_64-pkgconf
+
           mingw-w64-x86_64-qt5-base
-          mingw-w64-x86_64-qt5-base-tools
           mingw-w64-x86_64-qt5-tools
           mingw-w64-x86_64-qt5-declarative
           mingw-w64-x86_64-qt5-svg
+
           mingw-w64-x86_64-boost
           mingw-w64-x86_64-libevent
           mingw-w64-x86_64-miniupnpc
@@ -45,24 +50,23 @@ jobs:
         export PATH="/mingw64/bin:$PATH"
         echo "PATH=$PATH"
 
-        # 어떤 파일들이 있는지 로그로 남김
         ls -la /mingw64/bin/moc* || true
         ls -la /mingw64/bin/uic* || true
         ls -la /mingw64/bin/rcc* || true
         ls -la /mingw64/bin/qmake* || true
         ls -la /mingw64/bin/windeployqt* || true
 
-        # command 확인
         command -v moc || true
         command -v uic || true
         command -v rcc || true
         command -v qmake || true
         command -v windeployqt || true
 
-        # 최소 요구 툴: moc/uic/rcc는 반드시 있어야 함
+        # 필수: moc/uic/rcc는 반드시 존재해야 함 (없으면 여기서 즉시 실패)
         test -x /mingw64/bin/moc  || test -x /mingw64/bin/moc.exe
         test -x /mingw64/bin/uic  || test -x /mingw64/bin/uic.exe
         test -x /mingw64/bin/rcc  || test -x /mingw64/bin/rcc.exe
+        test -x /mingw64/bin/windeployqt || test -x /mingw64/bin/windeployqt.exe
 
     - name: Configure (force Qt tool paths)
       run: |
@@ -71,7 +75,6 @@ jobs:
 
         ./autogen.sh
 
-        # Qt 툴 경로를 강제로 지정(핵심)
         if [ -x /mingw64/bin/moc ]; then MOC_BIN=/mingw64/bin/moc; else MOC_BIN=/mingw64/bin/moc.exe; fi
         if [ -x /mingw64/bin/uic ]; then UIC_BIN=/mingw64/bin/uic; else UIC_BIN=/mingw64/bin/uic.exe; fi
         if [ -x /mingw64/bin/rcc ]; then RCC_BIN=/mingw64/bin/rcc; else RCC_BIN=/mingw64/bin/rcc.exe; fi
@@ -105,10 +108,8 @@ jobs:
         mkdir -p dist
         cp -a src/qt/bitcoin-qt.exe dist/bitcoin-qt.exe
 
-        # Qt 런타임/플러그인 자동 수집
         windeployqt --release --no-translations --compiler-runtime dist/bitcoin-qt.exe
 
-        # zip 생성
         powershell -NoProfile -Command "Compress-Archive -Path dist\* -DestinationPath bitcoinbt-qt-win64.zip"
         ls -la bitcoinbt-qt-win64.zip
 
