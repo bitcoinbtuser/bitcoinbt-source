@@ -11,9 +11,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # ------------------------------------------------------------
-      # MSYS2 + MINGW64 + Qt (dynamic only) 설치
-      # ------------------------------------------------------------
       - name: Setup MSYS2 (MINGW64)
         uses: msys2/setup-msys2@v2
         with:
@@ -40,38 +37,29 @@ jobs:
             mingw-w64-x86_64-qrencode
             mingw-w64-x86_64-miniupnpc
 
-      # ------------------------------------------------------------
-      # 환경 검증
-      # ------------------------------------------------------------
-      - name: Verify toolchain & Qt (dynamic)
+      - name: Verify toolchain & Qt (dynamic import libs)
         shell: msys2 {0}
         run: |
           set -euxo pipefail
-          echo "MSYSTEM=$MSYSTEM"
           export PATH="/mingw64/bin:$PATH"
 
-          which g++
-          which ld
           g++ --version
           ld --version
 
-          pacman -Q | grep -E "mingw-w64-x86_64-qt5-base|mingw-w64-x86_64-qrencode" || true
-
-          # dynamic import libs (.dll.a) 존재해야 정상
+          # import libs (.dll.a) 존재 확인
           ls -la /mingw64/lib/libQt5Core.dll.a
+          ls -la /mingw64/lib/libQt5Network.dll.a
           ls -la /mingw64/lib/libQt5Gui.dll.a
           ls -la /mingw64/lib/libQt5Widgets.dll.a
-          ls -la /mingw64/lib/libQt5Network.dll.a
           ls -la /mingw64/lib/libQt5DBus.dll.a
           ls -la /mingw64/lib/libqrencode.dll.a
 
-          test -x /mingw64/bin/moc.exe
-          test -x /mingw64/bin/uic.exe
-          test -x /mingw64/bin/rcc.exe
+          # pkg-config로 Qt 링크 플래그가 정상인지 확인
+          pkg-config --modversion Qt5Core
+          pkg-config --libs Qt5Core
+          pkg-config --libs Qt5Widgets
+          pkg-config --libs Qt5Network
 
-      # ------------------------------------------------------------
-      # autogen
-      # ------------------------------------------------------------
       - name: Autogen
         shell: msys2 {0}
         run: |
@@ -80,18 +68,35 @@ jobs:
           ./autogen.sh
 
       # ------------------------------------------------------------
-      # configure (동적 빌드 강제)
+      # 핵심: config.site로 "정적 링크 주입" 제거
       # ------------------------------------------------------------
-      - name: Configure (force shared / no static)
+      - name: Configure (force remove -static / -all-static)
         shell: msys2 {0}
         run: |
           set -euxo pipefail
           export PATH="/mingw64/bin:$PATH"
 
+          # config.site 생성: configure 단계에서 LDFLAGS/CXXFLAGS 등에서 -static류 제거
+          cat > config.site <<'EOF'
+          # Force dynamic link: strip any static flags that may be injected by toolchain/wrappers
+          case " $CFLAGS " in
+            *" -static "*) CFLAGS="${CFLAGS//-static/}" ;;
+          esac
+          case " $CXXFLAGS " in
+            *" -static "*) CXXFLAGS="${CXXFLAGS//-static/}" ;;
+          esac
+          case " $LDFLAGS " in
+            *" -static "*) LDFLAGS="${LDFLAGS//-static/}" ;;
+          esac
+          # some builds inject -all-static at link time; pre-empt via LDFLAGS content as well
+          LDFLAGS="${LDFLAGS//-all-static/}"
+          EOF
+
+          export CONFIG_SITE="$PWD/config.site"
+
           export PKG_CONFIG="/mingw64/bin/pkg-config"
           export PKG_CONFIG_PATH="/mingw64/lib/pkgconfig:/mingw64/share/pkgconfig"
 
-          # include/lib roots
           export CPPFLAGS="-I/mingw64/include -I/mingw64/include/qt5"
           export LDFLAGS="-L/mingw64/lib"
           export LIBRARY_PATH="/mingw64/lib"
@@ -121,38 +126,27 @@ jobs:
               --disable-zmq \
               --without-miniupnpc
 
-      # ------------------------------------------------------------
-      # 빌드 (링크 커맨드 출력 + 동적 링크 확인)
-      # ------------------------------------------------------------
-      - name: Build bitcoin-qt.exe (dynamic)
+      - name: Build bitcoin-qt.exe (ensure no -all-static)
         shell: msys2 {0}
         run: |
           set -euxo pipefail
           export PATH="/mingw64/bin:$PATH"
-          export LIBRARY_PATH="/mingw64/lib"
-
-          # 혹시 LDFLAGS/환경 어딘가에 -static/-all-static 남아있으면 제거(안전장치)
-          export LDFLAGS="-L/mingw64/lib"
-          echo "LDFLAGS(before)=${LDFLAGS}"
 
           cd src
 
-          # 링크 라인 출력(원인 확정용)
+          # 빌드 스크립트/Makefile에 -all-static이 남아있는지 먼저 검색해서 로그로 박제
+          grep -RIn -- "-all-static" Makefile* qt/Makefile* 2>/dev/null || true
+          grep -RIn -- " -static" Makefile* qt/Makefile* 2>/dev/null || true
+
+          # 링크 라인 출력
           make -j1 V=1 qt/bitcoin-qt.exe
 
           # 전체 빌드
           make -j"$(nproc)"
 
           ls -la qt/bitcoin-qt.exe
-
-          # 최종 바이너리가 완전 정적이면 보통 여기서 DLL 의존이 거의 안 잡힘.
-          # 동적이면 최소한 Qt DLL이 필요해져서 windeployqt가 의미가 생김.
-          # (objdump는 mingw toolchain에 포함)
           x86_64-w64-mingw32-objdump -p qt/bitcoin-qt.exe | grep -i "DLL Name" || true
 
-      # ------------------------------------------------------------
-      # 패키징
-      # ------------------------------------------------------------
       - name: Package (windeployqt + zip)
         shell: msys2 {0}
         run: |
@@ -172,14 +166,9 @@ jobs:
 
           "$WINDEPLOYQT" --release --no-translations --compiler-runtime dist/bitcoin-qt.exe
 
-          powershell -NoProfile -Command \
-            "Compress-Archive -Path dist\* -DestinationPath bitcoinbt-qt-win64.zip"
-
+          powershell -NoProfile -Command "Compress-Archive -Path dist\* -DestinationPath bitcoinbt-qt-win64.zip"
           ls -la bitcoinbt-qt-win64.zip
 
-      # ------------------------------------------------------------
-      # 업로드
-      # ------------------------------------------------------------
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
