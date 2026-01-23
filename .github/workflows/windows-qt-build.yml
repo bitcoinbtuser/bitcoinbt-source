@@ -29,34 +29,59 @@ jobs:
           mingw-w64-x86_64-qt5
           mingw-w64-x86_64-qt5-base
           mingw-w64-x86_64-qt5-tools
+          mingw-w64-x86_64-qt5-declarative
+          mingw-w64-x86_64-qt5-svg
           mingw-w64-x86_64-boost
           mingw-w64-x86_64-libevent
           mingw-w64-x86_64-miniupnpc
           mingw-w64-x86_64-zeromq
           mingw-w64-x86_64-qrencode
 
+    - name: Verify Qt tools (moc, qmake, windeployqt)
+      run: |
+        set -euxo pipefail
+        export PATH="/mingw64/bin:$PATH"
+        echo "PATH=$PATH"
+        ls -la /mingw64/bin/moc* || true
+        ls -la /mingw64/bin/qmake* || true
+        ls -la /mingw64/bin/windeployqt* || true
+        command -v moc || true
+        command -v qmake || true
+        command -v windeployqt || true
+
+        # moc가 없으면 여기서 바로 실패시키기(원인 명확)
+        test -x /mingw64/bin/moc || test -x /mingw64/bin/moc.exe
+
     - name: Configure
       run: |
         set -euxo pipefail
         export PATH="/mingw64/bin:$PATH"
-        which moc || true
-        ls -la /mingw64/bin/moc* || true
         ./autogen.sh
-        ./configure --host=x86_64-w64-mingw32 --with-gui=qt5 --disable-wallet
+
+        # moc 경로를 강제로 지정(핵심)
+        if [ -x /mingw64/bin/moc ]; then
+          MOC_BIN=/mingw64/bin/moc
+        else
+          MOC_BIN=/mingw64/bin/moc.exe
+        fi
+
+        MOC="$MOC_BIN" ./configure --host=x86_64-w64-mingw32 --with-gui=qt5 --disable-wallet
 
     - name: Build
       run: |
         set -euxo pipefail
+        export PATH="/mingw64/bin:$PATH"
         make -j"$(nproc)"
         ls -la src/qt/bitcoin-qt.exe
 
     - name: Package
       run: |
         set -euxo pipefail
+        export PATH="/mingw64/bin:$PATH"
         rm -rf dist
-        mkdir dist
+        mkdir -p dist
         cp src/qt/bitcoin-qt.exe dist/bitcoin-qt.exe
-        /mingw64/bin/windeployqt.exe --release --no-translations --compiler-runtime dist/bitcoin-qt.exe
+        windeployqt --release --no-translations --compiler-runtime dist/bitcoin-qt.exe
         powershell -NoProfile -Command "Compress-Archive -Path dist\* -DestinationPath bitcoinbt-qt-win64.zip"
 
     - name: Upload ZIP
