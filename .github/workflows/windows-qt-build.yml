@@ -59,7 +59,7 @@ jobs:
         test -x /mingw64/bin/qmake-qt5.exe  || test -x /mingw64/bin/qmake.exe
         test -x /mingw64/bin/windeployqt-qt5.exe || test -x /mingw64/bin/windeployqt.exe
 
-    - name: Configure (force Qt tool paths)
+        - name: Configure (force Qt tool paths)
       run: |
         set -euxo pipefail
         export PATH="/mingw64/bin:$PATH"
@@ -70,7 +70,18 @@ jobs:
         UIC_BIN=/mingw64/bin/uic.exe
         RCC_BIN=/mingw64/bin/rcc.exe
 
-        MOC="$MOC_BIN" UIC="$UIC_BIN" RCC="$RCC_BIN" \
+        LRELEASE_BIN=/mingw64/bin/lrelease-qt5.exe
+        if [ ! -x "$LRELEASE_BIN" ]; then
+          LRELEASE_BIN=/mingw64/bin/lrelease.exe
+        fi
+
+        # 존재 확인(없으면 여기서 바로 실패)
+        test -x "$MOC_BIN"
+        test -x "$UIC_BIN"
+        test -x "$RCC_BIN"
+        test -x "$LRELEASE_BIN"
+
+        MOC="$MOC_BIN" UIC="$UIC_BIN" RCC="$RCC_BIN" LRELEASE="$LRELEASE_BIN" \
           ./configure \
             --host=x86_64-w64-mingw32 \
             --with-gui=qt5 \
@@ -78,6 +89,7 @@ jobs:
             --disable-tests \
             --disable-bench \
             --disable-fuzz-binary
+
 
     - name: Build (bitcoin-qt.exe)
       run: |
