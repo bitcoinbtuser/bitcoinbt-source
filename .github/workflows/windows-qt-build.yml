@@ -25,88 +25,81 @@ jobs:
             automake
             libtool
             pkgconf
-            zip
-            mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-binutils
+            mingw-w64-x86_64-make
+            mingw-w64-x86_64-pkgconf
             mingw-w64-x86_64-qt5-base
             mingw-w64-x86_64-qt5-tools
-            mingw-w64-x86_64-qt5-translations
             mingw-w64-x86_64-qt5-declarative
             mingw-w64-x86_64-qt5-svg
+            mingw-w64-x86_64-qt5-translations
             mingw-w64-x86_64-boost
             mingw-w64-x86_64-libevent
-            mingw-w64-x86_64-miniupnpc
-            mingw-w64-x86_64-qrencode
             mingw-w64-x86_64-zeromq
-            mingw-w64-x86_64-libsodium
 
-      - name: Verify toolchain + Qt tools/libs
+      - name: Verify Qt tools + Qt libs existence
         run: |
           set -euxo pipefail
           export PATH="/mingw64/bin:$PATH"
-          echo "PATH=$PATH"
-          which gcc g++ ld pkg-config || true
-          pkg-config --version || true
+          export PKG_CONFIG_PATH="/mingw64/lib/pkgconfig:/mingw64/share/pkgconfig"
+          export PKG_CONFIG="/mingw64/bin/pkg-config"
 
-          # Qt tools
-          ls -la /mingw64/bin/moc*.exe || true
-          ls -la /mingw64/bin/uic*.exe || true
-          ls -la /mingw64/bin/rcc*.exe || true
+          pacman -Q | grep -E "qt5|qrencode|miniupnpc|zeromq|libsodium" || true
+
+          command -v gcc g++ ld pkg-config
+          pkg-config --version
+
+          ls -la /mingw64/bin/moc*.exe
+          ls -la /mingw64/bin/uic*.exe
+          ls -la /mingw64/bin/rcc*.exe
           ls -la /mingw64/bin/lrelease*.exe || true
-          ls -la /mingw64/bin/qmake*.exe || true
           ls -la /mingw64/bin/windeployqt*.exe || true
 
-          # (중요) 실제 라이브러리 파일 존재 확인
-          ls -la /mingw64/lib/libQt5Core* || true
-          ls -la /mingw64/lib/libQt5Gui* || true
-          ls -la /mingw64/lib/libQt5Widgets* || true
-          ls -la /mingw64/lib/libQt5Network* || true
-          ls -la /mingw64/lib/libQt5DBus* || true
-          ls -la /mingw64/lib/libqrencode* || true
-          ls -la /mingw64/lib/libsodium* || true
+          # 핵심: 링크 대상(Import lib) 실제 존재 확인
+          ls -la /mingw64/lib/libQt5Core*     || true
+          ls -la /mingw64/lib/libQt5Gui*      || true
+          ls -la /mingw64/lib/libQt5Widgets*  || true
+          ls -la /mingw64/lib/libQt5Network*  || true
+          ls -la /mingw64/lib/libQt5DBus*     || true
 
-      - name: Configure (force Qt paths, avoid static, disable zmq)
+          # pkg-config가 Qt를 제대로 뱉는지 확인 (여기서 깨지면 100% 경로/패키지 문제)
+          pkg-config --libs Qt5Core Qt5Gui Qt5Widgets Qt5Network || true
+
+      - name: Configure
         run: |
           set -euxo pipefail
           export PATH="/mingw64/bin:$PATH"
-
-          export PKG_CONFIG="/mingw64/bin/pkg-config"
           export PKG_CONFIG_PATH="/mingw64/lib/pkgconfig:/mingw64/share/pkgconfig"
-
-          # 혹시 환경에 -static 같은 게 묻어있으면 제거(링크 에러 방지용)
-          export CFLAGS="${CFLAGS:-}"
-          export CXXFLAGS="${CXXFLAGS:-}"
-          export LDFLAGS=""
-          export CPPFLAGS=""
+          export PKG_CONFIG="/mingw64/bin/pkg-config"
 
           ./autogen.sh
 
-          MOC=/mingw64/bin/moc.exe
-          UIC=/mingw64/bin/uic.exe
-          RCC=/mingw64/bin/rcc.exe
+          # lrelease는 -qt5일 수도 있음
           if [ -x /mingw64/bin/lrelease-qt5.exe ]; then
             LRELEASE=/mingw64/bin/lrelease-qt5.exe
           else
             LRELEASE=/mingw64/bin/lrelease.exe
           fi
 
-          test -x "$MOC"
-          test -x "$UIC"
-          test -x "$RCC"
-          test -x "$LRELEASE"
+          # 링커가 /mingw64/lib 를 못 보는 케이스 방어
+          export LDFLAGS="-L/mingw64/lib"
+          export CPPFLAGS="-I/mingw64/include"
 
-          MOC="$MOC" UIC="$UIC" RCC="$RCC" LRELEASE="$LRELEASE" \
-            ./configure \
-              --host=x86_64-w64-mingw32 \
-              --with-gui=qt5 \
-              --with-qt-bindir=/mingw64/bin \
-              --with-qt-libdir=/mingw64/lib \
-              --with-qt-includedir=/mingw64/include/qt5 \
-              --with-qt-plugindir=/mingw64/share/qt5/plugins \
-              --disable-wallet \
-              --disable-tests \
-              --disable-bench \
-              --disable-fuzz-binary \
-              --disable-zmq
+          MOC=/mingw64/bin/moc.exe \
+          UIC=/mingw64/bin/uic.exe \
+          RCC=/mingw64/bin/rcc.exe \
+          LRELEASE="$LRELEASE" \
+          ./configure \
+            --host=x86_64-w64-mingw32 \
+            --with-gui=qt5 \
+            --disable-wallet \
+            --disable-tests \
+            --disable-bench \
+            --disable-fuzz-binary \
+            --disable-zmq \
+            --without-miniupnpc \
+            --with-qrencode=no
 
       - name: Build (bitcoin-qt.exe)
         run: |
