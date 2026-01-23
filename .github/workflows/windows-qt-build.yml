@@ -6,9 +6,6 @@ on:
 jobs:
   win-qt:
     runs-on: windows-latest
-    defaults:
-      run:
-        shell: msys2 {0}
 
     steps:
       - uses: actions/checkout@v4
@@ -25,9 +22,7 @@ jobs:
             automake
             libtool
             pkgconf
-            mingw-w64-x86_64-gcc
-            mingw-w64-x86_64-binutils
-            mingw-w64-x86_64-make
+            mingw-w64-x86_64-toolchain
             mingw-w64-x86_64-pkgconf
             mingw-w64-x86_64-qt5-base
             mingw-w64-x86_64-qt5-tools
@@ -41,40 +36,55 @@ jobs:
             mingw-w64-x86_64-qrencode
             mingw-w64-x86_64-miniupnpc
 
-      - name: Verify Qt exists
+      - name: Verify toolchain + Qt exists
+        shell: msys2 {0}
         run: |
           set -euxo pipefail
+          echo "MSYSTEM=$MSYSTEM"
           export PATH="/mingw64/bin:$PATH"
 
-          pacman -Q | grep -E "mingw-w64-x86_64-qt5-base|mingw-w64-x86_64-qrencode" || true
-          pkg-config --version
-          pkg-config --modversion Qt5Core
-          pkg-config --cflags Qt5Core
-          pkg-config --libs Qt5Core
+          which bash
+          which g++
+          which ld
+          g++ --version
+          ld --version
 
-          ls -la /mingw64/lib/libQt5Core.dll.a || true
-          ls -la /mingw64/lib/libQt5Widgets.dll.a || true
-          ls -la /mingw64/lib/libQt5Gui.dll.a || true
-          ls -la /mingw64/lib/libQt5Network.dll.a || true
-          ls -la /mingw64/lib/libQt5DBus.dll.a || true
-          ls -la /mingw64/lib/libqrencode.dll.a || true
+          pacman -Q | grep -E "mingw-w64-x86_64-qt5-base|mingw-w64-x86_64-qrencode" || true
+
+          /mingw64/bin/pkg-config --version
+          /mingw64/bin/pkg-config --modversion Qt5Core
+          /mingw64/bin/pkg-config --libs Qt5Core
+
+          ls -la /mingw64/lib/libQt5Core.dll.a
+          ls -la /mingw64/lib/libQt5Widgets.dll.a
+          ls -la /mingw64/lib/libQt5Gui.dll.a
+          ls -la /mingw64/lib/libQt5Network.dll.a
+          ls -la /mingw64/lib/libQt5DBus.dll.a
+          ls -la /mingw64/lib/libqrencode.dll.a
 
           test -x /mingw64/bin/moc.exe
           test -x /mingw64/bin/uic.exe
           test -x /mingw64/bin/rcc.exe
 
-      - name: Configure
+      - name: Autogen
+        shell: msys2 {0}
         run: |
           set -euxo pipefail
+          export PATH="/mingw64/bin:$PATH"
+          ./autogen.sh
+
+      - name: Configure
+        shell: msys2 {0}
+        run: |
+          set -euxo pipefail
+          echo "MSYSTEM=$MSYSTEM"
           export PATH="/mingw64/bin:$PATH"
           export PKG_CONFIG="/mingw64/bin/pkg-config"
           export PKG_CONFIG_PATH="/mingw64/lib/pkgconfig:/mingw64/share/pkgconfig"
 
-          # 링커가 Qt/qrencode를 못 찾는 케이스 방지용 (핵심)
+          # 핵심: 링크/인클루드 경로를 확실히 /mingw64로 고정
           export CPPFLAGS="-I/mingw64/include -I/mingw64/include/qt5"
           export LDFLAGS="-L/mingw64/lib"
-
-          ./autogen.sh
 
           MOC=/mingw64/bin/moc.exe
           UIC=/mingw64/bin/uic.exe
@@ -100,13 +110,18 @@ jobs:
               --without-miniupnpc
 
       - name: Build
+        shell: msys2 {0}
         run: |
           set -euxo pipefail
+          echo "MSYSTEM=$MSYSTEM"
           export PATH="/mingw64/bin:$PATH"
+          which g++
+          which ld
           make -j"$(nproc)"
           ls -la src/qt/bitcoin-qt.exe
 
       - name: Package (windeployqt + zip)
+        shell: msys2 {0}
         run: |
           set -euxo pipefail
           export PATH="/mingw64/bin:$PATH"
