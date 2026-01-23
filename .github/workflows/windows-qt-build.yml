@@ -11,116 +11,115 @@ jobs:
         shell: msys2 {0}
 
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Setup MSYS2 (MINGW64) + install deps (NO groups)
-      uses: msys2/setup-msys2@v2
-      with:
-        msystem: MINGW64
-        update: true
-        install: >-
-          git
-          make
-          autoconf
-          automake
-          libtool
-          pkgconf
-          mingw-w64-x86_64-gcc
-          mingw-w64-x86_64-binutils
-          mingw-w64-x86_64-make
-          mingw-w64-x86_64-pkgconf
-          mingw-w64-x86_64-qt5-base
-          mingw-w64-x86_64-qt5-tools
-          mingw-w64-x86_64-qt5-declarative
-          mingw-w64-x86_64-qt5-svg
-          mingw-w64-x86_64-boost
-          mingw-w64-x86_64-libevent
-          mingw-w64-x86_64-miniupnpc
-          mingw-w64-x86_64-zeromq
-          mingw-w64-x86_64-qrencode
+      - name: Setup MSYS2 (MINGW64) + install deps (NO groups)
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            git
+            make
+            autoconf
+            automake
+            libtool
+            pkgconf
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-binutils
+            mingw-w64-x86_64-make
+            mingw-w64-x86_64-pkgconf
+            mingw-w64-x86_64-qt5-base
+            mingw-w64-x86_64-qt5-tools
+            mingw-w64-x86_64-qt5-declarative
+            mingw-w64-x86_64-qt5-svg
+            mingw-w64-x86_64-qt5-translations
+            mingw-w64-x86_64-boost
+            mingw-w64-x86_64-libevent
+            mingw-w64-x86_64-miniupnpc
+            mingw-w64-x86_64-zeromq
+            mingw-w64-x86_64-qrencode
 
-    - name: Verify Qt tools (moc/uic/rcc/qmake/windeployqt)
-      run: |
-        set -euxo pipefail
-        export PATH="/mingw64/bin:$PATH"
+      - name: Verify Qt tools (moc/uic/rcc/qmake/windeployqt/lrelease)
+        run: |
+          set -euxo pipefail
+          export PATH="/mingw64/bin:$PATH"
 
-        ls -la /mingw64/bin/moc*.exe || true
-        ls -la /mingw64/bin/uic*.exe || true
-        ls -la /mingw64/bin/rcc*.exe || true
-        ls -la /mingw64/bin/qmake*.exe || true
-        ls -la /mingw64/bin/windeployqt*.exe || true
+          ls -la /mingw64/bin/moc*.exe || true
+          ls -la /mingw64/bin/uic*.exe || true
+          ls -la /mingw64/bin/rcc*.exe || true
+          ls -la /mingw64/bin/lrelease*.exe || true
+          ls -la /mingw64/bin/qmake*.exe || true
+          ls -la /mingw64/bin/windeployqt*.exe || true
 
-        # 필수: moc/uic/rcc 존재 확인
-        test -x /mingw64/bin/moc.exe
-        test -x /mingw64/bin/uic.exe
-        test -x /mingw64/bin/rcc.exe
+          test -x /mingw64/bin/moc.exe
+          test -x /mingw64/bin/uic.exe
+          test -x /mingw64/bin/rcc.exe
 
-        # qmake / windeployqt 는 이름이 -qt5일 수 있음(네 로그가 그 케이스)
-        test -x /mingw64/bin/qmake-qt5.exe  || test -x /mingw64/bin/qmake.exe
-        test -x /mingw64/bin/windeployqt-qt5.exe || test -x /mingw64/bin/windeployqt.exe
+          test -x /mingw64/bin/qmake-qt5.exe || test -x /mingw64/bin/qmake.exe
+          test -x /mingw64/bin/windeployqt-qt5.exe || test -x /mingw64/bin/windeployqt.exe
+          test -x /mingw64/bin/lrelease-qt5.exe || test -x /mingw64/bin/lrelease.exe
 
-        - name: Configure (force Qt tool paths)
-      run: |
-        set -euxo pipefail
-        export PATH="/mingw64/bin:$PATH"
+      - name: Configure (force Qt tool paths)
+        run: |
+          set -euxo pipefail
+          export PATH="/mingw64/bin:$PATH"
 
-        ./autogen.sh
+          ./autogen.sh
 
-        MOC_BIN=/mingw64/bin/moc.exe
-        UIC_BIN=/mingw64/bin/uic.exe
-        RCC_BIN=/mingw64/bin/rcc.exe
+          MOC_BIN=/mingw64/bin/moc.exe
+          UIC_BIN=/mingw64/bin/uic.exe
+          RCC_BIN=/mingw64/bin/rcc.exe
 
-        LRELEASE_BIN=/mingw64/bin/lrelease-qt5.exe
-        if [ ! -x "$LRELEASE_BIN" ]; then
-          LRELEASE_BIN=/mingw64/bin/lrelease.exe
-        fi
+          LRELEASE_BIN=/mingw64/bin/lrelease-qt5.exe
+          if [ ! -x "$LRELEASE_BIN" ]; then
+            LRELEASE_BIN=/mingw64/bin/lrelease.exe
+          fi
 
-        # 존재 확인(없으면 여기서 바로 실패)
-        test -x "$MOC_BIN"
-        test -x "$UIC_BIN"
-        test -x "$RCC_BIN"
-        test -x "$LRELEASE_BIN"
+          test -x "$MOC_BIN"
+          test -x "$UIC_BIN"
+          test -x "$RCC_BIN"
+          test -x "$LRELEASE_BIN"
 
-        MOC="$MOC_BIN" UIC="$UIC_BIN" RCC="$RCC_BIN" LRELEASE="$LRELEASE_BIN" \
-          ./configure \
-            --host=x86_64-w64-mingw32 \
-            --with-gui=qt5 \
-            --disable-wallet \
-            --disable-tests \
-            --disable-bench \
-            --disable-fuzz-binary
+          MOC="$MOC_BIN" UIC="$UIC_BIN" RCC="$RCC_BIN" LRELEASE="$LRELEASE_BIN" \
+            ./configure \
+              --host=x86_64-w64-mingw32 \
+              --with-gui=qt5 \
+              --disable-wallet \
+              --disable-tests \
+              --disable-bench \
+              --disable-fuzz-binary
 
+      - name: Build (bitcoin-qt.exe)
+        run: |
+          set -euxo pipefail
+          export PATH="/mingw64/bin:$PATH"
+          make -j"$(nproc)"
+          ls -la src/qt/bitcoin-qt.exe
 
-    - name: Build (bitcoin-qt.exe)
-      run: |
-        set -euxo pipefail
-        export PATH="/mingw64/bin:$PATH"
-        make -j"$(nproc)"
-        ls -la src/qt/bitcoin-qt.exe
+      - name: Package (windeployqt + zip)
+        run: |
+          set -euxo pipefail
+          export PATH="/mingw64/bin:$PATH"
 
-    - name: Package (windeployqt + zip)
-      run: |
-        set -euxo pipefail
-        export PATH="/mingw64/bin:$PATH"
+          if [ -x /mingw64/bin/windeployqt-qt5.exe ]; then
+            WINDEPLOYQT=/mingw64/bin/windeployqt-qt5.exe
+          else
+            WINDEPLOYQT=/mingw64/bin/windeployqt.exe
+          fi
+          test -x "$WINDEPLOYQT"
 
-        # windeployqt 실제 바이너리 이름 결정(-qt5 우선)
-        if [ -x /mingw64/bin/windeployqt-qt5.exe ]; then
-          WINDEPLOYQT=/mingw64/bin/windeployqt-qt5.exe
-        else
-          WINDEPLOYQT=/mingw64/bin/windeployqt.exe
-        fi
+          rm -rf dist
+          mkdir -p dist
+          cp -a src/qt/bitcoin-qt.exe dist/bitcoin-qt.exe
 
-        rm -rf dist
-        mkdir -p dist
-        cp -a src/qt/bitcoin-qt.exe dist/bitcoin-qt.exe
+          "$WINDEPLOYQT" --release --no-translations --compiler-runtime dist/bitcoin-qt.exe
 
-        "$WINDEPLOYQT" --release --no-translations --compiler-runtime dist/bitcoin-qt.exe
+          powershell -NoProfile -Command "Compress-Archive -Path dist\* -DestinationPath bitcoinbt-qt-win64.zip"
+          ls -la bitcoinbt-qt-win64.zip
 
-        powershell -NoProfile -Command "Compress-Archive -Path dist\* -DestinationPath bitcoinbt-qt-win64.zip"
-        ls -la bitcoinbt-qt-win64.zip
-
-    - name: Upload ZIP artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: bitcoinbt-qt-win64
-        path: bitcoinbt-qt-win64.zip
+      - name: Upload ZIP artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bitcoinbt-qt-win64
+          path: bitcoinbt-qt-win64.zip
