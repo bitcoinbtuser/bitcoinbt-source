@@ -8,6 +8,7 @@
 #include <util/chaintype.h>
 
 #include <memory>
+#include <cstdint>
 #include <string>
 
 class ArgsManager;
