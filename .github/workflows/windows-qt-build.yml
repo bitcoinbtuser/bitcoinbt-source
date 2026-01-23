@@ -6,6 +6,7 @@ on:
 jobs:
   win-qt:
     runs-on: windows-latest
+
     defaults:
       run:
         shell: msys2 {0}
@@ -13,7 +14,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    - name: Install MSYS2 + Qt
+    - name: Install MSYS2 + Qt (MINGW64)
       uses: msys2/setup-msys2@v2
       with:
         msystem: MINGW64
@@ -28,6 +29,7 @@ jobs:
           mingw-w64-x86_64-toolchain
           mingw-w64-x86_64-qt5
           mingw-w64-x86_64-qt5-base
+          mingw-w64-x86_64-qt5-base-tools
           mingw-w64-x86_64-qt5-tools
           mingw-w64-x86_64-qt5-declarative
           mingw-w64-x86_64-qt5-svg
@@ -37,54 +39,80 @@ jobs:
           mingw-w64-x86_64-zeromq
           mingw-w64-x86_64-qrencode
 
-    - name: Verify Qt tools (moc, qmake, windeployqt)
+    - name: Verify Qt tools (moc/uic/rcc/qmake/windeployqt)
       run: |
         set -euxo pipefail
         export PATH="/mingw64/bin:$PATH"
         echo "PATH=$PATH"
+
+        # 어떤 파일들이 있는지 로그로 남김
         ls -la /mingw64/bin/moc* || true
+        ls -la /mingw64/bin/uic* || true
+        ls -la /mingw64/bin/rcc* || true
         ls -la /mingw64/bin/qmake* || true
         ls -la /mingw64/bin/windeployqt* || true
+
+        # command 확인
         command -v moc || true
+        command -v uic || true
+        command -v rcc || true
         command -v qmake || true
         command -v windeployqt || true
 
-        # moc가 없으면 여기서 바로 실패시키기(원인 명확)
-        test -x /mingw64/bin/moc || test -x /mingw64/bin/moc.exe
+        # 최소 요구 툴: moc/uic/rcc는 반드시 있어야 함
+        test -x /mingw64/bin/moc  || test -x /mingw64/bin/moc.exe
+        test -x /mingw64/bin/uic  || test -x /mingw64/bin/uic.exe
+        test -x /mingw64/bin/rcc  || test -x /mingw64/bin/rcc.exe
 
-    - name: Configure
+    - name: Configure (force Qt tool paths)
       run: |
         set -euxo pipefail
         export PATH="/mingw64/bin:$PATH"
+
         ./autogen.sh
 
-        # moc 경로를 강제로 지정(핵심)
-        if [ -x /mingw64/bin/moc ]; then
-          MOC_BIN=/mingw64/bin/moc
-        else
-          MOC_BIN=/mingw64/bin/moc.exe
-        fi
+        # Qt 툴 경로를 강제로 지정(핵심)
+        if [ -x /mingw64/bin/moc ]; then MOC_BIN=/mingw64/bin/moc; else MOC_BIN=/mingw64/bin/moc.exe; fi
+        if [ -x /mingw64/bin/uic ]; then UIC_BIN=/mingw64/bin/uic; else UIC_BIN=/mingw64/bin/uic.exe; fi
+        if [ -x /mingw64/bin/rcc ]; then RCC_BIN=/mingw64/bin/rcc; else RCC_BIN=/mingw64/bin/rcc.exe; fi
 
-        MOC="$MOC_BIN" ./configure --host=x86_64-w64-mingw32 --with-gui=qt5 --disable-wallet
+        echo "MOC=$MOC_BIN"
+        echo "UIC=$UIC_BIN"
+        echo "RCC=$RCC_BIN"
 
-    - name: Build
+        MOC="$MOC_BIN" UIC="$UIC_BIN" RCC="$RCC_BIN" \
+          ./configure \
+            --host=x86_64-w64-mingw32 \
+            --with-gui=qt5 \
+            --disable-wallet \
+            --disable-tests \
+            --disable-bench \
+            --disable-fuzz-binary
+
+    - name: Build (bitcoin-qt.exe)
       run: |
         set -euxo pipefail
         export PATH="/mingw64/bin:$PATH"
         make -j"$(nproc)"
         ls -la src/qt/bitcoin-qt.exe
 
-    - name: Package
+    - name: Package (windeployqt + zip)
       run: |
         set -euxo pipefail
         export PATH="/mingw64/bin:$PATH"
+
         rm -rf dist
         mkdir -p dist
-        cp src/qt/bitcoin-qt.exe dist/bitcoin-qt.exe
-        windeployqt --release --no-translations --compiler-runtime dist/bitcoin-qt.exe
-        powershell -NoProfile -Command "Compress-Archive -Path dist\* -DestinationPath bitcoinbt-qt-win64.zip"
+        cp -a src/qt/bitcoin-qt.exe dist/bitcoin-qt.exe
 
-    - name: Upload ZIP
+        # Qt 런타임/플러그인 자동 수집
+        windeployqt --release --no-translations --compiler-runtime dist/bitcoin-qt.exe
+
+        # zip 생성
+        powershell -NoProfile -Command "Compress-Archive -Path dist\* -DestinationPath bitcoinbt-qt-win64.zip"
+        ls -la bitcoinbt-qt-win64.zip
+
+    - name: Upload ZIP artifact
       uses: actions/upload-artifact@v4
       with:
         name: bitcoinbt-qt-win64
