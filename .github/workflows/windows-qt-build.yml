@@ -49,7 +49,6 @@ jobs:
 
           pacman -Q | grep -E 'mingw-w64-x86_64-qt5-|qrencode|libevent|boost' || true
 
-          # 동적 import libs는 반드시 존재해야 함
           ls -la /mingw64/lib/libQt5Core.dll.a
           ls -la /mingw64/lib/libQt5Gui.dll.a
           ls -la /mingw64/lib/libQt5Widgets.dll.a
@@ -73,14 +72,14 @@ jobs:
 
           # libtool 손상 체크
           if [ -f libtool ]; then
-            if grep -n: -E '\|\s*\|' libtool >/dev/null; then
+            if grep -nE '\|\s*\|' libtool >/dev/null; then
               echo "ERROR: libtool is corrupted (contains '| |')."
               grep -nE '\|\s*\|' libtool | head -n 80 || true
               exit 1
             fi
           fi
 
-      - name: Configure (Qt5 GUI, NO UPNP)
+      - name: Configure (Qt5 GUI, NO UPNP, FORCE SHARED)
         shell: msys2 {0}
         run: |
           set -euxo pipefail
@@ -88,6 +87,13 @@ jobs:
 
           export PKG_CONFIG="/mingw64/bin/pkg-config"
           export PKG_CONFIG_PATH="/mingw64/lib/pkgconfig:/mingw64/share/pkgconfig"
+
+          # 핵심: -static이 들어오지 않게 플래그를 먼저 "명시적으로" 지정
+          # (Makefile 생성 단계에서 고정되는 걸 막음)
+          export CFLAGS="-O2 -g"
+          export CXXFLAGS="-O2 -g -std=c++17"
+          export LDFLAGS=""
+          export CPPFLAGS=""
 
           MOC=/mingw64/bin/moc.exe
           UIC=/mingw64/bin/uic.exe
@@ -113,21 +119,24 @@ jobs:
               --disable-fuzz-binary \
               --disable-zmq \
               --without-miniupnpc \
-              --without-natpmp
+              --without-natpmp \
+              --enable-shared \
+              --disable-static
 
           echo "---- config summary ----"
-          (grep -nE "with gui|with upnp|with natpmp|with qr" config.log || true)
+          (grep -nE "with gui|with upnp|with natpmp|with qr|enable-shared|disable-static" config.log || true)
 
-      # 보조 패치(있으면 제거): -all-static 토큰만 제거
-      - name: Best-effort remove -all-static token from generated makefiles
+      - name: Sanitize generated Makefiles (remove static forcing flags)
         shell: msys2 {0}
         run: |
           set -euxo pipefail
           export PATH="/mingw64/bin:$PATH"
 
-          echo "---- BEFORE (-all-static occurrences) ----"
+          echo "---- BEFORE: find static tokens (top hits) ----"
+          grep -RIn -- " -static " src/Makefile src/Makefile.in src/Makefile.qt.include src/qt/Makefile 2>/dev/null || true
           grep -RIn -- "-all-static" src/Makefile src/Makefile.in src/Makefile.qt.include src/qt/Makefile 2>/dev/null || true
 
+          # 1) 흔한 원인: LIBTOOL_APP_LDFLAGS / -all-static
           for f in src/Makefile src/Makefile.in src/Makefile.qt.include src/qt/Makefile; do
             if [ -f "$f" ]; then
               sed -i 's/-all-static//g' "$f" || true
@@ -135,22 +144,37 @@ jobs:
             fi
           done
 
-          echo "---- AFTER (-all-static occurrences) ----"
-          grep -RIn -- "-all-static" src/Makefile src/Makefile.in src/Makefile.qt.include src/qt/Makefile 2>/dev/null || true
+          # 2) 더 중요한 원인: " -static " 토큰(컴파일/링크에 계속 따라붙음)
+          #    정확히 ' -static '만 제거 ( -static-libgcc 같은 건 남김 )
+          for f in src/Makefile src/Makefile.in src/Makefile.qt.include src/qt/Makefile; do
+            if [ -f "$f" ]; then
+              sed -i 's/ -static / /g' "$f" || true
+            fi
+          done
 
-      - name: Build bitcoin-qt.exe (V=1, force dynamic at FINAL LINK)
+          echo "---- AFTER: verify no forcing tokens remain in those files ----"
+          if grep -RIn -- " -static " src/Makefile src/Makefile.in src/Makefile.qt.include src/qt/Makefile 2>/dev/null; then
+            echo "ERROR: ' -static ' still present in key Makefiles."
+            exit 1
+          fi
+          if grep -RIn -- "-all-static" src/Makefile src/Makefile.in src/Makefile.qt.include src/qt/Makefile 2>/dev/null; then
+            echo "ERROR: '-all-static' still present in key Makefiles."
+            exit 1
+          fi
+
+      - name: Build bitcoin-qt.exe (V=1)
         shell: msys2 {0}
         run: |
           set -euxo pipefail
           export PATH="/mingw64/bin:$PATH"
           cd src
 
-          # 1) 최종 링크라인만 검사: qt/bitcoin-qt.exe 링크에 -all-static/-static 있으면 실패
-          echo "---- dry-run: check FINAL link line only ----"
-          make -n V=1 LIBTOOL_APP_LDFLAGS= LDFLAGS= qt/bitcoin-qt.exe \
+          # 1) 링크 라인에서 -static/-all-static이 보이면 즉시 실패
+          echo "---- dry-run: final link line check ----"
+          make -n V=1 qt/bitcoin-qt.exe \
             | grep -E "(/bin/sh .*libtool.*--mode=link .*qt/bitcoin-qt\.exe|x86_64-w64-mingw32-g\+\+ .*qt/bitcoin-qt\.exe)" -n || true
 
-          if make -n V=1 LIBTOOL_APP_LDFLAGS= LDFLAGS= qt/bitcoin-qt.exe \
+          if make -n V=1 qt/bitcoin-qt.exe \
               | grep -E "(/bin/sh .*libtool.*--mode=link .*qt/bitcoin-qt\.exe|x86_64-w64-mingw32-g\+\+ .*qt/bitcoin-qt\.exe)" \
               | grep -E -- "(-all-static| -static )"
           then
@@ -158,14 +182,21 @@ jobs:
             exit 1
           fi
 
-          # 2) 실제 빌드 (최종 링크에서 정적 강제 제거)
-          make -j1 V=1 LIBTOOL_APP_LDFLAGS= LDFLAGS= qt/bitcoin-qt.exe
+          # 2) 빌드
+          make -j1 V=1 qt/bitcoin-qt.exe
 
           ls -la qt/bitcoin-qt.exe
+
           echo "---- DLL deps ----"
           x86_64-w64-mingw32-objdump -p qt/bitcoin-qt.exe | grep -i "DLL Name" || true
 
-      - name: Package + zip
+          # 3) windeployqt가 Qt exe로 인식하려면 Qt5Core.dll 의존이 보여야 정상
+          if ! x86_64-w64-mingw32-objdump -p qt/bitcoin-qt.exe | grep -qi "Qt5Core.dll"; then
+            echo "ERROR: Qt5Core.dll dependency not found -> windeployqt will fail."
+            exit 1
+          fi
+
+      - name: Package + zip (windeployqt if usable, else manual)
         shell: msys2 {0}
         run: |
           set -euxo pipefail
@@ -175,6 +206,9 @@ jobs:
           mkdir -p dist
           cp -a src/qt/bitcoin-qt.exe dist/bitcoin-qt.exe
 
+          # Qt 플러그인 경로(일부 환경에서 필요)
+          export QT_PLUGIN_PATH="/mingw64/share/qt5/plugins"
+
           WINDEPLOYQT=""
           for c in /mingw64/bin/windeployqt-qt5.exe /mingw64/bin/windeployqt.exe; do
             if [ -x "$c" ]; then WINDEPLOYQT="$c"; break; fi
@@ -182,18 +216,23 @@ jobs:
 
           if [ -n "$WINDEPLOYQT" ]; then
             echo "Using $WINDEPLOYQT"
-            "$WINDEPLOYQT" --release --no-translations --compiler-runtime dist/bitcoin-qt.exe
-          else
-            echo "windeployqt not found -> manual Qt DLL + plugin copy"
+            "$WINDEPLOYQT" --release --no-translations --compiler-runtime dist/bitcoin-qt.exe || {
+              echo "windeployqt failed -> fallback to manual copy"
+              WINDEPLOYQT=""
+            }
+          fi
+
+          if [ -z "$WINDEPLOYQT" ]; then
+            echo "Manual Qt DLL + plugin copy"
 
             cp -a /mingw64/bin/Qt5Core.dll dist/
             cp -a /mingw64/bin/Qt5Gui.dll dist/
             cp -a /mingw64/bin/Qt5Widgets.dll dist/
             cp -a /mingw64/bin/Qt5Network.dll dist/
             cp -a /mingw64/bin/Qt5DBus.dll dist/
-            cp -a /mingw64/bin/libgcc_s_seh-1.dll dist/
-            cp -a /mingw64/bin/libstdc++-6.dll dist/
-            cp -a /mingw64/bin/libwinpthread-1.dll dist/
+            cp -a /mingw64/bin/libgcc_s_seh-1.dll dist/ || true
+            cp -a /mingw64/bin/libstdc++-6.dll dist/ || true
+            cp -a /mingw64/bin/libwinpthread-1.dll dist/ || true
 
             mkdir -p dist/platforms
             cp -a /mingw64/share/qt5/plugins/platforms/qwindows.dll dist/platforms/
@@ -203,6 +242,10 @@ jobs:
               cp -a /mingw64/share/qt5/plugins/styles/qwindowsvistastyle.dll dist/styles/
             fi
           fi
+
+          echo "---- dist ----"
+          ls -la dist || true
+          ls -la dist/platforms || true
 
           powershell -NoProfile -Command "Compress-Archive -Path dist\* -DestinationPath bitcoinbt-qt-win64.zip"
           ls -la bitcoinbt-qt-win64.zip
