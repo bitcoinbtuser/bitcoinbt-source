@@ -11,18 +11,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup MSYS2 (MINGW64)
+      # ------------------------------------------------------------
+      # MSYS2 + MINGW64 + Qt(동적) 설치
+      #  - qt5-static 절대 설치하지 말 것 (GUI가 -all-static으로 굳어짐)
+      # ------------------------------------------------------------
+      - name: Setup MSYS2 (MINGW64) + deps (NO qt5-static)
         uses: msys2/setup-msys2@v2
         with:
           msystem: MINGW64
           update: true
           install: >-
             git
-            make
             autoconf
             automake
             libtool
             pkgconf
+            make
             mingw-w64-x86_64-toolchain
             mingw-w64-x86_64-pkgconf
             mingw-w64-x86_64-qt5-base
@@ -37,29 +41,50 @@ jobs:
             mingw-w64-x86_64-qrencode
             mingw-w64-x86_64-miniupnpc
 
+      # ------------------------------------------------------------
+      # 환경 검증
+      #  - Qt import lib(.dll.a) 존재해야 "동적 링크" 가능
+      # ------------------------------------------------------------
       - name: Verify toolchain & Qt (dynamic import libs)
         shell: msys2 {0}
         run: |
           set -euxo pipefail
           export PATH="/mingw64/bin:$PATH"
 
+          echo "MSYSTEM=$MSYSTEM"
+          which g++
+          which ld
           g++ --version
           ld --version
 
-          # import libs (.dll.a) 존재 확인
+          # qt5-static이 설치되면 안 됨 (설치되어 있으면 바로 실패시키기)
+          if pacman -Q | grep -q "mingw-w64-x86_64-qt5-static"; then
+            echo "ERROR: mingw-w64-x86_64-qt5-static is installed. Remove it."
+            exit 1
+          fi
+
+          # 동적 import libs 존재 확인
           ls -la /mingw64/lib/libQt5Core.dll.a
-          ls -la /mingw64/lib/libQt5Network.dll.a
           ls -la /mingw64/lib/libQt5Gui.dll.a
           ls -la /mingw64/lib/libQt5Widgets.dll.a
+          ls -la /mingw64/lib/libQt5Network.dll.a
           ls -la /mingw64/lib/libQt5DBus.dll.a
           ls -la /mingw64/lib/libqrencode.dll.a
 
-          # pkg-config로 Qt 링크 플래그가 정상인지 확인
+          # pkg-config로 Qt 플래그 확인
           pkg-config --modversion Qt5Core
           pkg-config --libs Qt5Core
           pkg-config --libs Qt5Widgets
           pkg-config --libs Qt5Network
 
+          # Qt tools
+          test -x /mingw64/bin/moc.exe
+          test -x /mingw64/bin/uic.exe
+          test -x /mingw64/bin/rcc.exe
+
+      # ------------------------------------------------------------
+      # autogen
+      # ------------------------------------------------------------
       - name: Autogen
         shell: msys2 {0}
         run: |
@@ -68,31 +93,14 @@ jobs:
           ./autogen.sh
 
       # ------------------------------------------------------------
-      # 핵심: config.site로 "정적 링크 주입" 제거
+      # configure (동적 GUI 강제)
+      #  - --disable-gui-static 이 포인트
       # ------------------------------------------------------------
-      - name: Configure (force remove -static / -all-static)
+      - name: Configure (force dynamic Qt GUI)
         shell: msys2 {0}
         run: |
           set -euxo pipefail
           export PATH="/mingw64/bin:$PATH"
-
-          # config.site 생성: configure 단계에서 LDFLAGS/CXXFLAGS 등에서 -static류 제거
-          cat > config.site <<'EOF'
-          # Force dynamic link: strip any static flags that may be injected by toolchain/wrappers
-          case " $CFLAGS " in
-            *" -static "*) CFLAGS="${CFLAGS//-static/}" ;;
-          esac
-          case " $CXXFLAGS " in
-            *" -static "*) CXXFLAGS="${CXXFLAGS//-static/}" ;;
-          esac
-          case " $LDFLAGS " in
-            *" -static "*) LDFLAGS="${LDFLAGS//-static/}" ;;
-          esac
-          # some builds inject -all-static at link time; pre-empt via LDFLAGS content as well
-          LDFLAGS="${LDFLAGS//-all-static/}"
-          EOF
-
-          export CONFIG_SITE="$PWD/config.site"
 
           export PKG_CONFIG="/mingw64/bin/pkg-config"
           export PKG_CONFIG_PATH="/mingw64/lib/pkgconfig:/mingw64/share/pkgconfig"
@@ -119,6 +127,7 @@ jobs:
               --with-qt-bindir=/mingw64/bin \
               --disable-static \
               --enable-shared \
+              --disable-gui-static \
               --disable-wallet \
               --disable-tests \
               --disable-bench \
@@ -126,7 +135,14 @@ jobs:
               --disable-zmq \
               --without-miniupnpc
 
-      - name: Build bitcoin-qt.exe (ensure no -all-static)
+          # configure 결과물에서 -all-static / -static 흔적이 있는지 확인(있으면 로그로 노출)
+          (cd src && grep -RIn -- "-all-static" Makefile* qt/Makefile* 2>/dev/null || true)
+          (cd src && grep -RIn -- " -static"  Makefile* qt/Makefile* 2>/dev/null || true)
+
+      # ------------------------------------------------------------
+      # 빌드 (링크 커맨드 출력)
+      # ------------------------------------------------------------
+      - name: Build bitcoin-qt.exe (V=1 link line)
         shell: msys2 {0}
         run: |
           set -euxo pipefail
@@ -134,19 +150,20 @@ jobs:
 
           cd src
 
-          # 빌드 스크립트/Makefile에 -all-static이 남아있는지 먼저 검색해서 로그로 박제
-          grep -RIn -- "-all-static" Makefile* qt/Makefile* 2>/dev/null || true
-          grep -RIn -- " -static" Makefile* qt/Makefile* 2>/dev/null || true
-
-          # 링크 라인 출력
+          # 먼저 링크 라인만 강제로 출력(원인 박제)
           make -j1 V=1 qt/bitcoin-qt.exe
 
           # 전체 빌드
           make -j"$(nproc)"
 
           ls -la qt/bitcoin-qt.exe
+
+          # 동적 링크면 DLL Name들이 보여야 정상
           x86_64-w64-mingw32-objdump -p qt/bitcoin-qt.exe | grep -i "DLL Name" || true
 
+      # ------------------------------------------------------------
+      # 패키징 (windeployqt + zip)
+      # ------------------------------------------------------------
       - name: Package (windeployqt + zip)
         shell: msys2 {0}
         run: |
@@ -169,6 +186,9 @@ jobs:
           powershell -NoProfile -Command "Compress-Archive -Path dist\* -DestinationPath bitcoinbt-qt-win64.zip"
           ls -la bitcoinbt-qt-win64.zip
 
+      # ------------------------------------------------------------
+      # 업로드
+      # ------------------------------------------------------------
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
