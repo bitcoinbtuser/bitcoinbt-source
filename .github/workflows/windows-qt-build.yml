@@ -12,7 +12,7 @@ jobs:
         uses: actions/checkout@v4
 
       # ============================================================
-      # MSYS2 + MINGW64 + Qt5 (DYNAMIC, 공식 패키지)
+      # MSYS2 + MINGW64 + Qt5 (DYNAMIC)
       # ============================================================
       - name: Setup MSYS2 (MINGW64)
         uses: msys2/setup-msys2@v2
@@ -41,22 +41,46 @@ jobs:
             mingw-w64-x86_64-miniupnpc
 
       # ============================================================
-      # 환경 검증 (팩트 체크)
+      # Verify + windeployqt 찾기(없으면 패키지 재설치 시도)
       # ============================================================
-      - name: Verify Qt5 dynamic libs
+      - name: Verify Qt5 & locate windeployqt
         shell: msys2 {0}
         run: |
           set -euxo pipefail
           export PATH="/mingw64/bin:$PATH"
 
-          pacman -Q | grep qt5
-          ls -la /mingw64/lib/libQt5Core.dll.a
-          ls -la /mingw64/bin/Qt5Core.dll
+          echo "== Installed qt5 packages =="
+          pacman -Q | grep -E "qt5" || true
 
+          echo "== Check import libs =="
+          ls -la /mingw64/lib/libQt5Core.dll.a
+          ls -la /mingw64/lib/libQt5Gui.dll.a
+          ls -la /mingw64/lib/libQt5Widgets.dll.a
+          ls -la /mingw64/lib/libQt5Network.dll.a || true
+          ls -la /mingw64/lib/libQt5DBus.dll.a || true
+          ls -la /mingw64/lib/libqrencode.dll.a
+
+          echo "== Check tools =="
           which moc
           which uic
           which rcc
-          which windeployqt
+
+          echo "== Try to locate windeployqt candidates =="
+          for c in windeployqt windeployqt-qt5 windeployqt.exe windeployqt-qt5.exe; do
+            if command -v "$c" >/dev/null 2>&1; then
+              echo "FOUND in PATH: $c -> $(command -v "$c")"
+            fi
+          done
+
+          echo "== Hard search in /mingw64/bin =="
+          ls -la /mingw64/bin | grep -i windeployqt || true
+
+          # 없으면 패키지 재설치(가끔 PATH 등록/파일 누락 케이스)
+          if ! ls /mingw64/bin | grep -qi windeployqt; then
+            echo "windeployqt not found. Reinstalling qt5-base & qt5-tools..."
+            pacman --noconfirm -S --needed --overwrite '*' mingw-w64-x86_64-qt5-base mingw-w64-x86_64-qt5-tools
+            ls -la /mingw64/bin | grep -i windeployqt || true
+          fi
 
       # ============================================================
       # autogen
@@ -78,7 +102,7 @@ jobs:
           export PATH="/mingw64/bin:$PATH"
 
           export PKG_CONFIG="/mingw64/bin/pkg-config"
-          export PKG_CONFIG_PATH="/mingw64/lib/pkgconfig"
+          export PKG_CONFIG_PATH="/mingw64/lib/pkgconfig:/mingw64/share/pkgconfig"
 
           export CPPFLAGS="-I/mingw64/include -I/mingw64/include/qt5"
           export LDFLAGS="-L/mingw64/lib"
@@ -111,23 +135,64 @@ jobs:
           cd src
           make -j"$(nproc)"
           ls -la qt/bitcoin-qt.exe
+          x86_64-w64-mingw32-objdump -p qt/bitcoin-qt.exe | grep -i "DLL Name" || true
 
       # ============================================================
-      # 패키징 (DLL 포함)
+      # Package
+      #  - windeployqt 있으면 사용
+      #  - 없으면 최소 DLL 수동 복사(실행 가능 패키지 만들기)
       # ============================================================
-      - name: Package with windeployqt
+      - name: Package (windeployqt if available, else manual DLL copy)
         shell: msys2 {0}
         run: |
           set -euxo pipefail
           export PATH="/mingw64/bin:$PATH"
 
-          mkdir dist
-          cp src/qt/bitcoin-qt.exe dist/
+          rm -rf dist
+          mkdir -p dist
+          cp -a src/qt/bitcoin-qt.exe dist/bitcoin-qt.exe
 
-          windeployqt dist/bitcoin-qt.exe
+          # 1) windeployqt 후보 탐색
+          WINDEPLOYQT=""
+          for c in /mingw64/bin/windeployqt-qt5.exe /mingw64/bin/windeployqt.exe /mingw64/bin/windeployqt-qt5 /mingw64/bin/windeployqt; do
+            if [ -x "$c" ]; then
+              WINDEPLOYQT="$c"
+              break
+            fi
+          done
 
-          powershell -NoProfile -Command `
-            "Compress-Archive -Path dist\* -DestinationPath bitcoinbt-qt-win64.zip"
+          if [ -n "$WINDEPLOYQT" ]; then
+            echo "Using WINDEPLOYQT=$WINDEPLOYQT"
+            "$WINDEPLOYQT" --release --no-translations --compiler-runtime dist/bitcoin-qt.exe
+          else
+            echo "WARNING: windeployqt not found. Doing manual minimal DLL packaging."
+
+            # 2) 실행 최소 필수 Qt DLL들(기본)
+            cp -a /mingw64/bin/Qt5Core.dll dist/
+            cp -a /mingw64/bin/Qt5Gui.dll dist/
+            cp -a /mingw64/bin/Qt5Widgets.dll dist/
+            cp -a /mingw64/bin/Qt5Network.dll dist/ || true
+            cp -a /mingw64/bin/Qt5DBus.dll dist/ || true
+            cp -a /mingw64/bin/libgcc_s_seh-1.dll dist/ || true
+            cp -a /mingw64/bin/libstdc++-6.dll dist/ || true
+            cp -a /mingw64/bin/libwinpthread-1.dll dist/ || true
+
+            # 3) Qt 플랫폼 플러그인(qwindows) 없으면 실행 자체가 안됨
+            mkdir -p dist/platforms
+            cp -a /mingw64/share/qt5/plugins/platforms/qwindows.dll dist/platforms/ || true
+
+            # 4) SVG 쓰면 iconengines도 필요할 수 있음
+            mkdir -p dist/iconengines dist/imageformats dist/styles
+            cp -a /mingw64/share/qt5/plugins/iconengines/* dist/iconengines/ || true
+            cp -a /mingw64/share/qt5/plugins/imageformats/* dist/imageformats/ || true
+            cp -a /mingw64/share/qt5/plugins/styles/* dist/styles/ || true
+
+            echo "Manual package contents:"
+            find dist -maxdepth 3 -type f -printf "%p\n" | sort
+          fi
+
+          powershell -NoProfile -Command "Compress-Archive -Path dist\* -DestinationPath bitcoinbt-qt-win64.zip"
+          ls -la bitcoinbt-qt-win64.zip
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
