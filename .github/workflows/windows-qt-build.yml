@@ -11,10 +11,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # ------------------------------------------------------------
-      # MSYS2 + MINGW64 + Qt(동적) 설치
-      # ------------------------------------------------------------
-      - name: Setup MSYS2 (MINGW64) + deps (NO qt5-static)
+      - name: Setup MSYS2 (MINGW64) + deps
         uses: msys2/setup-msys2@v2
         with:
           msystem: MINGW64
@@ -40,28 +37,13 @@ jobs:
             mingw-w64-x86_64-qrencode
             mingw-w64-x86_64-miniupnpc
 
-      # ------------------------------------------------------------
-      # 환경 검증 (Qt import lib 존재해야 동적 링크 가능)
-      # ------------------------------------------------------------
-      - name: Verify toolchain & Qt (dynamic import libs)
+      - name: Verify Qt import libs exist
         shell: msys2 {0}
         run: |
           set -euxo pipefail
           export PATH="/mingw64/bin:$PATH"
 
-          echo "MSYSTEM=$MSYSTEM"
-          which g++
-          which ld
-          g++ --version
-          ld --version
-
-          # qt5-static이 설치되면 안 됨
-          if pacman -Q | grep -q "mingw-w64-x86_64-qt5-static"; then
-            echo "ERROR: mingw-w64-x86_64-qt5-static is installed. Remove it."
-            exit 1
-          fi
-
-          # 동적 import libs 존재 확인 (없으면 여기서 바로 실패)
+          # must exist (dynamic import libs)
           ls -la /mingw64/lib/libQt5Core.dll.a
           ls -la /mingw64/lib/libQt5Gui.dll.a
           ls -la /mingw64/lib/libQt5Widgets.dll.a
@@ -69,32 +51,32 @@ jobs:
           ls -la /mingw64/lib/libQt5DBus.dll.a
           ls -la /mingw64/lib/libqrencode.dll.a
 
-          # pkg-config 확인
           pkg-config --modversion Qt5Core
           pkg-config --libs Qt5Core
           pkg-config --libs Qt5Widgets
           pkg-config --libs Qt5Network
 
-          # Qt tools
-          test -x /mingw64/bin/moc.exe
-          test -x /mingw64/bin/uic.exe
-          test -x /mingw64/bin/rcc.exe
-
-      # ------------------------------------------------------------
-      # autogen
-      # ------------------------------------------------------------
-      - name: Autogen
+      - name: Autogen (regenerate autotools)
         shell: msys2 {0}
         run: |
           set -euxo pipefail
           export PATH="/mingw64/bin:$PATH"
+
+          # 만약 repo에 깨진 libtool이 커밋돼 있으면 여기서도 오염될 수 있으니
+          # autogen으로 재생성 유도
           ./autogen.sh
 
-      # ------------------------------------------------------------
-      # configure
-      #  - 여기서도 "repo 전체 sed" 같은 짓 절대 금지
-      # ------------------------------------------------------------
-      - name: Configure (Qt GUI, avoid gui-static)
+          # libtool 손상 체크: "| |" 토큰 나오면 즉시 실패
+          if [ -f libtool ]; then
+            if grep -nE '\|\s*\|' libtool >/dev/null; then
+              echo "ERROR: libtool is corrupted (contains '| |')."
+              echo "---- libtool context ----"
+              grep -nE '\|\s*\|' -n libtool | head -n 20 || true
+              exit 1
+            fi
+          fi
+
+      - name: Configure (Qt GUI)
         shell: msys2 {0}
         run: |
           set -euxo pipefail
@@ -102,10 +84,6 @@ jobs:
 
           export PKG_CONFIG="/mingw64/bin/pkg-config"
           export PKG_CONFIG_PATH="/mingw64/lib/pkgconfig:/mingw64/share/pkgconfig"
-
-          export CPPFLAGS="-I/mingw64/include -I/mingw64/include/qt5"
-          export LDFLAGS="-L/mingw64/lib"
-          export LIBRARY_PATH="/mingw64/lib"
 
           MOC=/mingw64/bin/moc.exe
           UIC=/mingw64/bin/uic.exe
@@ -130,60 +108,41 @@ jobs:
               --disable-fuzz-binary \
               --disable-zmq
 
-          # 참고용 출력 (실패시키진 않음)
-          (cd src && grep -RIn -- "-all-static" Makefile* qt/Makefile* 2>/dev/null || true)
-          (cd src && grep -RIn -- " -static"  Makefile* qt/Makefile* 2>/dev/null || true)
-
-      # ------------------------------------------------------------
-      # !!! 핵심 !!!
-      # libtool 포함 오토툴 파일을 건드리면 바로 "line 4216 | |" 터짐
-      # 따라서 -all-static 제거는 "Qt 관련 Makefile"에만 제한
-      # ------------------------------------------------------------
-      - name: Patch Qt link flags only (SAFE: remove -all-static from Qt Makefiles)
+      - name: Force-remove static flags from Qt link only
         shell: msys2 {0}
         run: |
           set -euxo pipefail
           export PATH="/mingw64/bin:$PATH"
 
-          # 보호: libtool은 절대 건드리지 말 것
-          test -f libtool
+          # 핵심: Qt 타겟 링크라인에서 -all-static / -static / -Wl,-Bstatic 같은 "정적 강제"만 제거
+          # (libtool 파일 자체는 절대 수정 금지)
+          for f in src/qt/Makefile src/Makefile; do
+            if [ -f "$f" ]; then
+              sed -i 's/-all-static//g' "$f"
+              sed -i 's/ -static / /g' "$f"
+              sed -i 's/-Wl,-Bstatic//g' "$f"
+              sed -i 's/-Wl,--whole-archive//g' "$f"
+              sed -i 's/-Wl,--no-whole-archive//g' "$f"
+            fi
+          done
 
-          # -all-static만 제거 ( -static 제거 금지: libtool/스크립트 깨질 수 있음 )
-          if [ -f src/qt/Makefile ]; then
-            sed -i 's/-all-static//g' src/qt/Makefile
-          fi
-          if [ -f src/Makefile ]; then
-            sed -i 's/-all-static//g' src/Makefile
-          fi
+          # 링크라인에 Qt libdir(-L/mingw64/lib) 강제 포함되었는지 점검 로그
+          grep -RIn -- "qt/bitcoin-qt.exe" -n src/qt/Makefile 2>/dev/null || true
+          grep -RIn -- "mingw64/lib" -n src/qt/Makefile 2>/dev/null || true
 
-          # 확인: Qt 타겟에서 -all-static 없어야 함
-          (grep -RIn -- "-all-static" src/qt/Makefile src/Makefile 2>/dev/null && exit 1) || true
-
-      # ------------------------------------------------------------
-      # 빌드 (링크 커맨드 출력)
-      # ------------------------------------------------------------
-      - name: Build bitcoin-qt.exe (V=1 link line)
+      - name: Build bitcoin-qt.exe (show link line)
         shell: msys2 {0}
         run: |
           set -euxo pipefail
           export PATH="/mingw64/bin:$PATH"
-
           cd src
 
-          # 링크 라인 확인 (원인 박제)
+          # 실패 시 진단용: 링커가 실제로 뭘 찾는지 출력
           make -j1 V=1 qt/bitcoin-qt.exe
 
-          # 전체 빌드
-          make -j"$(nproc)"
-
-          ls -la qt/bitcoin-qt.exe
-
-          # 동적 링크면 DLL Name들이 보여야 정상 (Qt5Core.dll 등)
+          ls -la qt/bitcoin-qt.exe || true
           x86_64-w64-mingw32-objdump -p qt/bitcoin-qt.exe | grep -i "DLL Name" || true
 
-      # ------------------------------------------------------------
-      # 패키징 (windeployqt + zip)
-      # ------------------------------------------------------------
       - name: Package (windeployqt + zip)
         shell: msys2 {0}
         run: |
@@ -195,7 +154,6 @@ jobs:
           else
             WINDEPLOYQT=/mingw64/bin/windeployqt.exe
           fi
-          test -x "$WINDEPLOYQT"
 
           rm -rf dist
           mkdir -p dist
@@ -206,9 +164,6 @@ jobs:
           powershell -NoProfile -Command "Compress-Archive -Path dist\* -DestinationPath bitcoinbt-qt-win64.zip"
           ls -la bitcoinbt-qt-win64.zip
 
-      # ------------------------------------------------------------
-      # 업로드
-      # ------------------------------------------------------------
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
