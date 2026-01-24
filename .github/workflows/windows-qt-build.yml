@@ -1,4 +1,4 @@
-name: Build Windows bitcoin-qt.exe (MSYS2, Qt5 dynamic + try qt5-static)
+name: Build Windows bitcoin-qt.exe (MSYS2, Qt5 dynamic)
 
 on:
   workflow_dispatch:
@@ -12,9 +12,7 @@ jobs:
         uses: actions/checkout@v4
 
       # ------------------------------------------------------------
-      # MSYS2 + MINGW64 + deps
-      #  - Qt는 "동적"을 기본으로 설치
-      #  - UPnP 문제 회피 위해 miniupnpc는 여기서 설치하지 않음
+      # MSYS2 + MINGW64 + deps (Qt5 dynamic)
       # ------------------------------------------------------------
       - name: Setup MSYS2 (MINGW64) + deps
         uses: msys2/setup-msys2@v2
@@ -43,18 +41,35 @@ jobs:
             unzip
 
       # ------------------------------------------------------------
-      # (옵션) qt5-static "있으면" 설치 시도
-      #  - 네 로그에서 qt5-base-static 같은 건 'target not found'였음
-      #  - MSYS2에 qt5-static 메타가 없을 수도 있으니, 실패해도 계속 진행
+      # (옵션) qt5 static 계열이 "존재하면" 설치 시도
+      #  - 패키지명이 없거나 레포에 없으면 그냥 스킵 (continue-on-error)
       # ------------------------------------------------------------
-      - name: Try install qt5-static (optional; continue on failure)
+      - name: Try install Qt5 static packages if available (optional)
         shell: msys2 {0}
         continue-on-error: true
         run: |
           set -euxo pipefail
           export PATH="/mingw64/bin:$PATH"
-          pacman -S --noconfirm --needed mingw-w64-x86_64-qt5-static || true
-          pacman -Q | grep -E 'qt5-static|qt5-' || true
+
+          echo "---- search candidates containing 'qt5' and 'static' ----"
+          pacman -Ss 'mingw-w64-x86_64-qt5.*static' || true
+
+          # 흔히 없는 경우가 많음. 있으면 설치되는 것만 설치.
+          for p in \
+            mingw-w64-x86_64-qt5-base-static \
+            mingw-w64-x86_64-qt5-svg-static \
+            mingw-w64-x86_64-qt5-static
+          do
+            if pacman -Si "$p" >/dev/null 2>&1; then
+              echo "Installing $p"
+              pacman -S --noconfirm --needed "$p"
+            else
+              echo "Skip (not found): $p"
+            fi
+          done
+
+          echo "---- installed qt packages ----"
+          pacman -Q | grep -E 'mingw-w64-x86_64-qt5-|qt5.*static' || true
 
       # ------------------------------------------------------------
       # 환경 검증 (팩트체크)
@@ -69,8 +84,8 @@ jobs:
           which g++
           g++ --version
 
-          echo "---- installed qt packages ----"
-          pacman -Q | grep -E 'mingw-w64-x86_64-qt5-|mingw-w64-x86_64-qt5-static|qrencode|libevent|boost' || true
+          echo "---- installed (qt5/qrencode/libevent/boost) ----"
+          pacman -Q | grep -E 'mingw-w64-x86_64-qt5-|qrencode|libevent|boost' || true
 
           echo "---- Qt dynamic import libs must exist ----"
           ls -la /mingw64/lib/libQt5Core.dll.a
@@ -87,7 +102,6 @@ jobs:
 
           echo "---- windeployqt candidates ----"
           ls -la /mingw64/bin/windeployqt* || true
-          command -v windeployqt >/dev/null 2>&1 && echo "windeployqt in PATH" || echo "windeployqt not in PATH"
 
       # ------------------------------------------------------------
       # autogen
@@ -100,7 +114,7 @@ jobs:
 
           ./autogen.sh
 
-          # libtool 손상 체크("| |" 같은 이상 토큰 있으면 즉시 실패)
+          # libtool 손상 체크
           if [ -f libtool ]; then
             if grep -nE '\|\s*\|' libtool >/dev/null; then
               echo "ERROR: libtool is corrupted (contains '| |')."
@@ -151,62 +165,59 @@ jobs:
               --without-miniupnpc \
               --without-natpmp
 
-          echo "---- config summary (grep) ----"
+          echo "---- config summary ----"
           (grep -nE "with gui|with upnp|with natpmp|with qr" config.log || true)
 
       # ------------------------------------------------------------
-      # !!! 핵심 패치 !!!
-      # 네 로그에서 -all-static 실제 위치는 src/Makefile:3888
-      # 여기 남아 있으면 libtool이 -static 강제 -> -lQt5Core는 .a를 찾게 되어 터짐
-      # 따라서 src/Makefile / src/Makefile.in / src/Makefile.qt.include를 모두 안전하게 제거
+      # (보조) -all-static이 어디에 박혔는지 로그로 확인
+      #  - 여기서 "지우는" 것도 시도하지만, 진짜 정답은 다음 Build 스텝의 make 오버라이드임
       # ------------------------------------------------------------
-      - name: Patch static-forcing flags (-all-static) in generated makefiles
+      - name: Diagnose/patch -all-static occurrences (best-effort)
         shell: msys2 {0}
         run: |
           set -euxo pipefail
           export PATH="/mingw64/bin:$PATH"
 
-          echo "---- BEFORE grep -all-static ----"
-          grep -RIn -- "-all-static" src/Makefile src/Makefile.in src/Makefile.qt.include 2>/dev/null || true
+          echo "---- occurrences BEFORE ----"
+          grep -RIn -- "-all-static" src/Makefile src/Makefile.in src/Makefile.qt.include src/qt/Makefile 2>/dev/null || true
 
-          # 1) src/Makefile (네가 실제로 걸린 위치)
-          if [ -f src/Makefile ]; then
-            sed -i 's/^LIBTOOL_APP_LDFLAGS[[:space:]]*=.*$/LIBTOOL_APP_LDFLAGS =/g' src/Makefile
-          fi
+          # best-effort 제거(없어도 ok)
+          for f in src/Makefile src/Makefile.in src/Makefile.qt.include src/qt/Makefile; do
+            if [ -f "$f" ]; then
+              # LIBTOOL_APP_LDFLAGS 라인 비우기
+              sed -i 's/^LIBTOOL_APP_LDFLAGS[[:space:]]*=.*$/LIBTOOL_APP_LDFLAGS =/g' "$f" || true
+              # 남아있는 -all-static 토큰 제거
+              sed -i 's/-all-static//g' "$f" || true
+              # 혹시 들어간 -static 도 제거(토큰 수준)
+              sed -i 's/ -static / /g' "$f" || true
+            fi
+          done
 
-          # 2) 재생성 대비: src/Makefile.in도 같이
-          if [ -f src/Makefile.in ]; then
-            sed -i 's/^LIBTOOL_APP_LDFLAGS[[:space:]]*=.*$/LIBTOOL_APP_LDFLAGS =/g' src/Makefile.in
-          fi
+          echo "---- occurrences AFTER ----"
+          grep -RIn -- "-all-static" src/Makefile src/Makefile.in src/Makefile.qt.include src/qt/Makefile 2>/dev/null || true
 
-          # 3) 혹시 여기에도 있으면 제거
-          if [ -f src/Makefile.qt.include ]; then
-            sed -i 's/^LIBTOOL_APP_LDFLAGS[[:space:]]*=.*$/LIBTOOL_APP_LDFLAGS =/g' src/Makefile.qt.include
-          fi
+      # ------------------------------------------------------------
+      # 빌드 (핵심: make 변수 오버라이드로 -all-static 강제 무력화)
+      # ------------------------------------------------------------
+      - name: Build bitcoin-qt.exe (V=1, force dynamic by overriding LIBTOOL_APP_LDFLAGS)
+        shell: msys2 {0}
+        run: |
+          set -euxo pipefail
+          export PATH="/mingw64/bin:$PATH"
+          cd src
 
-          echo "---- AFTER grep -all-static ----"
-          if grep -RIn -- "-all-static" src/Makefile src/Makefile.in src/Makefile.qt.include 2>/dev/null; then
-            echo "ERROR: -all-static still present."
+          echo "---- precheck: dry-run link line (must not contain -all-static/-static after override) ----"
+          if make -n V=1 LIBTOOL_APP_LDFLAGS= qt/bitcoin-qt.exe | grep -E -- "-all-static| -static "; then
+            echo "ERROR: static flags still appear even with LIBTOOL_APP_LDFLAGS override."
             exit 1
           fi
 
-      # ------------------------------------------------------------
-      # 빌드 (링크 라인 출력)
-      # ------------------------------------------------------------
-      - name: Build bitcoin-qt.exe (V=1)
-        shell: msys2 {0}
-        run: |
-          set -euxo pipefail
-          export PATH="/mingw64/bin:$PATH"
-
-          cd src
-
-          # 링크 라인 진단: 여기서 -static이 없어야 정상
-          make -j1 V=1 qt/bitcoin-qt.exe
+          # 실제 빌드
+          make -j1 V=1 LIBTOOL_APP_LDFLAGS= qt/bitcoin-qt.exe
 
           ls -la qt/bitcoin-qt.exe
 
-          echo "---- DLL deps (objdump) ----"
+          echo "---- DLL deps ----"
           x86_64-w64-mingw32-objdump -p qt/bitcoin-qt.exe | grep -i "DLL Name" || true
 
       # ------------------------------------------------------------
@@ -224,7 +235,6 @@ jobs:
           mkdir -p dist
           cp -a src/qt/bitcoin-qt.exe dist/bitcoin-qt.exe
 
-          # windeployqt 이름이 환경마다 다를 수 있어 후보를 찾는다
           WINDEPLOYQT=""
           for c in /mingw64/bin/windeployqt-qt5.exe /mingw64/bin/windeployqt.exe; do
             if [ -x "$c" ]; then WINDEPLOYQT="$c"; break; fi
