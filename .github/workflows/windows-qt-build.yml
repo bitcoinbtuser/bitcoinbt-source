@@ -36,14 +36,13 @@ jobs:
             mingw-w64-x86_64-qt5-translations
             mingw-w64-x86_64-boost
             mingw-w64-x86_64-libevent
-            mingw-w64-x86_64-zeromq
             mingw-w64-x86_64-libsodium
             mingw-w64-x86_64-qrencode
             mingw-w64-x86_64-miniupnpc
 
       # ------------------------------------------------------------
       # 환경 검증
-      #  - Qt import lib(.dll.a) 존재해야 "동적 링크" 가능
+      #  - Qt import lib(.dll.a) 존재해야 동적 링크 가능
       # ------------------------------------------------------------
       - name: Verify toolchain & Qt (dynamic import libs)
         shell: msys2 {0}
@@ -57,19 +56,21 @@ jobs:
           g++ --version
           ld --version
 
-          # qt5-static이 설치되면 안 됨 (설치되어 있으면 바로 실패시키기)
+          # qt5-static이 설치되면 안 됨
           if pacman -Q | grep -q "mingw-w64-x86_64-qt5-static"; then
             echo "ERROR: mingw-w64-x86_64-qt5-static is installed. Remove it."
             exit 1
           fi
 
-          # 동적 import libs 존재 확인
+          # 동적 import libs 존재 확인 (중요: .dll.a)
           ls -la /mingw64/lib/libQt5Core.dll.a
           ls -la /mingw64/lib/libQt5Gui.dll.a
           ls -la /mingw64/lib/libQt5Widgets.dll.a
           ls -la /mingw64/lib/libQt5Network.dll.a
           ls -la /mingw64/lib/libQt5DBus.dll.a
-          ls -la /mingw64/lib/libqrencode.dll.a
+
+          # qrencode (msys2 패키지에 따라 .a일 수 있음)
+          (ls -la /mingw64/lib/libqrencode.dll.a || ls -la /mingw64/lib/libqrencode.a)
 
           # pkg-config로 Qt 플래그 확인
           pkg-config --modversion Qt5Core
@@ -94,7 +95,7 @@ jobs:
 
       # ------------------------------------------------------------
       # configure (동적 GUI 강제)
-      #  - --disable-gui-static 이 포인트
+      #  - 여기서 중요한 건 "qt5-static 미설치" + "gui-static 끄기"
       # ------------------------------------------------------------
       - name: Configure (force dynamic Qt GUI)
         shell: msys2 {0}
@@ -135,12 +136,38 @@ jobs:
               --disable-zmq \
               --without-miniupnpc
 
-          # configure 결과물에서 -all-static / -static 흔적이 있는지 확인(있으면 로그로 노출)
+          # (참고) configure 결과에 -all-static / -static 흔적이 보이면 후단에서 제거함
           (cd src && grep -RIn -- "-all-static" Makefile* qt/Makefile* 2>/dev/null || true)
           (cd src && grep -RIn -- " -static"  Makefile* qt/Makefile* 2>/dev/null || true)
 
       # ------------------------------------------------------------
-      # 빌드 (링크 커맨드 출력)
+      # 핵심: Makefile에 박힌 -all-static / -static 강제 제거
+      #  - configure가 만들어낸 Makefile에 -all-static이 남아있으면 Qt가 .a를 찾다가 터짐
+      # ------------------------------------------------------------
+      - name: Force remove -all-static / -static from Makefiles
+        shell: msys2 {0}
+        run: |
+          set -euxo pipefail
+          export PATH="/mingw64/bin:$PATH"
+
+          cd src
+
+          echo "===== BEFORE ====="
+          grep -RIn -- "-all-static" . || true
+          grep -RIn -- " -static" . || true
+
+          find . -type f \( -name "Makefile" -o -name "Makefile.*" \) | while read -r f; do
+            sed -i 's/-all-static//g' "$f" || true
+            sed -i 's/ -static / /g' "$f" || true
+            sed -i 's/ -static$/ /g' "$f" || true
+          done
+
+          echo "===== AFTER ====="
+          grep -RIn -- "-all-static" . || true
+          grep -RIn -- " -static" . || true
+
+      # ------------------------------------------------------------
+      # 빌드 (링크 커맨드 출력 + 전체 빌드)
       # ------------------------------------------------------------
       - name: Build bitcoin-qt.exe (V=1 link line)
         shell: msys2 {0}
@@ -150,7 +177,7 @@ jobs:
 
           cd src
 
-          # 먼저 링크 라인만 강제로 출력(원인 박제)
+          # 링크 라인 확인 (원인 고정)
           make -j1 V=1 qt/bitcoin-qt.exe
 
           # 전체 빌드
