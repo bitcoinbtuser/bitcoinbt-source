@@ -1,4 +1,4 @@
-name: Build Windows bitcoin-qt.exe (MSYS2 MINGW64)
+name: Build Windows bitcoin-qt.exe (MSYS2 / STATIC QT)
 
 on:
   workflow_dispatch:
@@ -8,10 +8,16 @@ jobs:
     runs-on: windows-latest
 
     steps:
+      # ------------------------------------------------------------
+      # 1. 소스 체크아웃
+      # ------------------------------------------------------------
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup MSYS2 (MINGW64)
+      # ------------------------------------------------------------
+      # 2. MSYS2 + MINGW64 + Qt5 STATIC + 의존성
+      # ------------------------------------------------------------
+      - name: Setup MSYS2 (MINGW64, STATIC QT)
         uses: msys2/setup-msys2@v2
         with:
           msystem: MINGW64
@@ -23,48 +29,50 @@ jobs:
             libtool
             pkgconf
             make
+
             mingw-w64-x86_64-toolchain
             mingw-w64-x86_64-pkgconf
-            mingw-w64-x86_64-qt5-base
+
+            mingw-w64-x86_64-qt5-static
             mingw-w64-x86_64-qt5-tools
-            mingw-w64-x86_64-qt5-declarative
             mingw-w64-x86_64-qt5-svg
             mingw-w64-x86_64-qt5-translations
+
             mingw-w64-x86_64-boost
             mingw-w64-x86_64-libevent
-            mingw-w64-x86_64-libsodium
             mingw-w64-x86_64-zeromq
+            mingw-w64-x86_64-libsodium
             mingw-w64-x86_64-qrencode
             mingw-w64-x86_64-miniupnpc
 
-      - name: Verify Qt import libs exist (dynamic)
+      # ------------------------------------------------------------
+      # 3. 환경 검증 (STATIC 기준)
+      # ------------------------------------------------------------
+      - name: Verify static Qt toolchain
         shell: msys2 {0}
         run: |
           set -euxo pipefail
           export PATH="/mingw64/bin:$PATH"
 
+          echo "MSYSTEM=$MSYSTEM"
           g++ --version
-          ld --version
 
-          # qt5-static 있으면 즉시 실패
-          if pacman -Q | grep -q "mingw-w64-x86_64-qt5-static"; then
-            echo "ERROR: qt5-static installed"
-            exit 1
-          fi
+          # Qt static lib 반드시 존재
+          ls -la /mingw64/lib/libQt5Core.a
+          ls -la /mingw64/lib/libQt5Gui.a
+          ls -la /mingw64/lib/libQt5Widgets.a
+          ls -la /mingw64/lib/libQt5Network.a
+          ls -la /mingw64/lib/libQt5DBus.a
+          ls -la /mingw64/lib/libqrencode.a
 
-          # 동적 import libs 확인
-          ls -la /mingw64/lib/libQt5Core.dll.a
-          ls -la /mingw64/lib/libQt5Gui.dll.a
-          ls -la /mingw64/lib/libQt5Widgets.dll.a
-          ls -la /mingw64/lib/libQt5Network.dll.a
-          ls -la /mingw64/lib/libQt5DBus.dll.a
-          ls -la /mingw64/lib/libqrencode.dll.a
+          # Qt tools
+          test -x /mingw64/bin/moc.exe
+          test -x /mingw64/bin/uic.exe
+          test -x /mingw64/bin/rcc.exe
 
-          pkg-config --modversion Qt5Core
-          pkg-config --libs Qt5Core
-          pkg-config --libs Qt5Widgets
-          pkg-config --libs Qt5Network
-
+      # ------------------------------------------------------------
+      # 4. autogen
+      # ------------------------------------------------------------
       - name: Autogen
         shell: msys2 {0}
         run: |
@@ -72,98 +80,70 @@ jobs:
           export PATH="/mingw64/bin:$PATH"
           ./autogen.sh
 
-      - name: Configure (BLOCK CONFIG_SITE + NO UPnP + NO gui-static)
+      # ------------------------------------------------------------
+      # 5. configure (Windows GUI = STATIC, 공식 경로)
+      # ------------------------------------------------------------
+      - name: Configure (Windows static Qt GUI)
         shell: msys2 {0}
         run: |
           set -euxo pipefail
           export PATH="/mingw64/bin:$PATH"
 
-          # ✅ 핵심: config.site 주입 차단 (여기서 -all-static이 많이 들어옴)
-          export CONFIG_SITE=/dev/null
-
-          # ✅ 환경변수로 들어온 -static 계열 제거/초기화
-          unset CFLAGS CXXFLAGS CPPFLAGS LDFLAGS
-          export CC=x86_64-w64-mingw32-gcc
-          export CXX=x86_64-w64-mingw32-g++
           export PKG_CONFIG="/mingw64/bin/pkg-config"
           export PKG_CONFIG_PATH="/mingw64/lib/pkgconfig:/mingw64/share/pkgconfig"
 
-          # include/lib 경로만 최소로 지정 (static 플래그 금지)
           export CPPFLAGS="-I/mingw64/include -I/mingw64/include/qt5"
           export LDFLAGS="-L/mingw64/lib"
+          export LIBRARY_PATH="/mingw64/lib"
 
-          MOC=/mingw64/bin/moc.exe
-          UIC=/mingw64/bin/uic.exe
-          RCC=/mingw64/bin/rcc.exe
-          if [ -x /mingw64/bin/lrelease-qt5.exe ]; then
-            LRELEASE=/mingw64/bin/lrelease-qt5.exe
-          else
-            LRELEASE=/mingw64/bin/lrelease.exe
-          fi
+          ./configure \
+            --host=x86_64-w64-mingw32 \
+            --with-gui=qt5 \
+            --with-qt-incdir=/mingw64/include/qt5 \
+            --with-qt-libdir=/mingw64/lib \
+            --with-qt-bindir=/mingw64/bin \
+            --disable-wallet \
+            --disable-tests \
+            --disable-bench \
+            --disable-fuzz-binary \
+            --disable-zmq \
+            --without-natpmp
 
-          MOC="$MOC" UIC="$UIC" RCC="$RCC" LRELEASE="$LRELEASE" \
-            ./configure \
-              --host=x86_64-w64-mingw32 \
-              --with-gui=qt5 \
-              --with-qt-incdir=/mingw64/include/qt5 \
-              --with-qt-libdir=/mingw64/lib \
-              --with-qt-bindir=/mingw64/bin \
-              --disable-gui-static \
-              --without-miniupnpc \
-              --disable-wallet \
-              --disable-tests \
-              --disable-bench \
-              --disable-fuzz-binary \
-              --disable-zmq
-
-          # configure 결과에서 -all-static/-static 흔적이 남아있으면 여기서 바로 실패시키기
-          if (cd src && grep -RIn -- "-all-static" Makefile* qt/Makefile* 2>/dev/null); then
-            echo "ERROR: -all-static still present after configure"
-            exit 1
-          fi
-          if (cd src && grep -RIn -- " -static" Makefile* qt/Makefile* 2>/dev/null); then
-            echo "ERROR: -static still present after configure"
-            exit 1
-          fi
-
-      - name: Build bitcoin-qt.exe (show link line)
+      # ------------------------------------------------------------
+      # 6. 빌드 (bitcoin-qt.exe)
+      # ------------------------------------------------------------
+      - name: Build bitcoin-qt.exe
         shell: msys2 {0}
         run: |
           set -euxo pipefail
           export PATH="/mingw64/bin:$PATH"
+
           cd src
-
-          # 링크 라인 확인
-          make -j1 V=1 qt/bitcoin-qt.exe
-
-          # 전체 빌드
           make -j"$(nproc)"
 
           ls -la qt/bitcoin-qt.exe
-          x86_64-w64-mingw32-objdump -p qt/bitcoin-qt.exe | grep -i "DLL Name" || true
 
-      - name: Package (windeployqt + zip)
+          # static 확인 (DLL Name 없어야 정상)
+          x86_64-w64-mingw32-objdump -p qt/bitcoin-qt.exe | grep -i "DLL Name" && exit 1 || true
+
+      # ------------------------------------------------------------
+      # 7. 아티팩트 패키징 (exe 단일 파일)
+      # ------------------------------------------------------------
+      - name: Package
         shell: msys2 {0}
         run: |
           set -euxo pipefail
-          export PATH="/mingw64/bin:$PATH"
-
-          if [ -x /mingw64/bin/windeployqt-qt5.exe ]; then
-            WINDEPLOYQT=/mingw64/bin/windeployqt-qt5.exe
-          else
-            WINDEPLOYQT=/mingw64/bin/windeployqt.exe
-          fi
-          test -x "$WINDEPLOYQT"
-
-          rm -rf dist
           mkdir -p dist
-          cp -a src/qt/bitcoin-qt.exe dist/bitcoin-qt.exe
+          cp src/qt/bitcoin-qt.exe dist/bitcoin-qt.exe
 
-          "$WINDEPLOYQT" --release --no-translations --compiler-runtime dist/bitcoin-qt.exe
+          powershell -NoProfile -Command \
+            "Compress-Archive -Path dist\bitcoin-qt.exe -DestinationPath bitcoinbt-qt-win64.zip"
 
-          powershell -NoProfile -Command "Compress-Archive -Path dist\* -DestinationPath bitcoinbt-qt-win64.zip"
           ls -la bitcoinbt-qt-win64.zip
 
+      # ------------------------------------------------------------
+      # 8. 업로드
+      # ------------------------------------------------------------
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
