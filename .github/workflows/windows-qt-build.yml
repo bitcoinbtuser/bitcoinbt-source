@@ -11,9 +11,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # ------------------------------------------------------------
-      # MSYS2 + MINGW64 + deps (Qt5 dynamic)
-      # ------------------------------------------------------------
       - name: Setup MSYS2 (MINGW64) + deps
         uses: msys2/setup-msys2@v2
         with:
@@ -40,40 +37,6 @@ jobs:
             zip
             unzip
 
-      # ------------------------------------------------------------
-      # (옵션) qt5 static 계열이 "존재하면" 설치 시도
-      #  - 패키지명이 없거나 레포에 없으면 그냥 스킵 (continue-on-error)
-      # ------------------------------------------------------------
-      - name: Try install Qt5 static packages if available (optional)
-        shell: msys2 {0}
-        continue-on-error: true
-        run: |
-          set -euxo pipefail
-          export PATH="/mingw64/bin:$PATH"
-
-          echo "---- search candidates containing 'qt5' and 'static' ----"
-          pacman -Ss 'mingw-w64-x86_64-qt5.*static' || true
-
-          # 흔히 없는 경우가 많음. 있으면 설치되는 것만 설치.
-          for p in \
-            mingw-w64-x86_64-qt5-base-static \
-            mingw-w64-x86_64-qt5-svg-static \
-            mingw-w64-x86_64-qt5-static
-          do
-            if pacman -Si "$p" >/dev/null 2>&1; then
-              echo "Installing $p"
-              pacman -S --noconfirm --needed "$p"
-            else
-              echo "Skip (not found): $p"
-            fi
-          done
-
-          echo "---- installed qt packages ----"
-          pacman -Q | grep -E 'mingw-w64-x86_64-qt5-|qt5.*static' || true
-
-      # ------------------------------------------------------------
-      # 환경 검증 (팩트체크)
-      # ------------------------------------------------------------
       - name: Verify Qt import libs & tools
         shell: msys2 {0}
         run: |
@@ -84,10 +47,9 @@ jobs:
           which g++
           g++ --version
 
-          echo "---- installed (qt5/qrencode/libevent/boost) ----"
           pacman -Q | grep -E 'mingw-w64-x86_64-qt5-|qrencode|libevent|boost' || true
 
-          echo "---- Qt dynamic import libs must exist ----"
+          # 동적 import libs는 반드시 존재해야 함
           ls -la /mingw64/lib/libQt5Core.dll.a
           ls -la /mingw64/lib/libQt5Gui.dll.a
           ls -la /mingw64/lib/libQt5Widgets.dll.a
@@ -95,17 +57,12 @@ jobs:
           ls -la /mingw64/lib/libQt5DBus.dll.a
           ls -la /mingw64/lib/libqrencode.dll.a
 
-          echo "---- Qt tools ----"
           which moc
           which uic
           which rcc
 
-          echo "---- windeployqt candidates ----"
           ls -la /mingw64/bin/windeployqt* || true
 
-      # ------------------------------------------------------------
-      # autogen
-      # ------------------------------------------------------------
       - name: Autogen
         shell: msys2 {0}
         run: |
@@ -116,19 +73,13 @@ jobs:
 
           # libtool 손상 체크
           if [ -f libtool ]; then
-            if grep -nE '\|\s*\|' libtool >/dev/null; then
+            if grep -n: -E '\|\s*\|' libtool >/dev/null; then
               echo "ERROR: libtool is corrupted (contains '| |')."
               grep -nE '\|\s*\|' libtool | head -n 80 || true
               exit 1
             fi
           fi
 
-      # ------------------------------------------------------------
-      # configure
-      #  - UPnP 완전 제외: --without-miniupnpc --without-natpmp
-      #  - wallet/tests/bench/fuzz off
-      #  - ZMQ off
-      # ------------------------------------------------------------
       - name: Configure (Qt5 GUI, NO UPNP)
         shell: msys2 {0}
         run: |
@@ -141,7 +92,6 @@ jobs:
           MOC=/mingw64/bin/moc.exe
           UIC=/mingw64/bin/uic.exe
           RCC=/mingw64/bin/rcc.exe
-
           if [ -x /mingw64/bin/lrelease-qt5.exe ]; then
             LRELEASE=/mingw64/bin/lrelease-qt5.exe
           elif [ -x /mingw64/bin/lrelease.exe ]; then
@@ -168,63 +118,53 @@ jobs:
           echo "---- config summary ----"
           (grep -nE "with gui|with upnp|with natpmp|with qr" config.log || true)
 
-      # ------------------------------------------------------------
-      # (보조) -all-static이 어디에 박혔는지 로그로 확인
-      #  - 여기서 "지우는" 것도 시도하지만, 진짜 정답은 다음 Build 스텝의 make 오버라이드임
-      # ------------------------------------------------------------
-      - name: Diagnose/patch -all-static occurrences (best-effort)
+      # 보조 패치(있으면 제거): -all-static 토큰만 제거
+      - name: Best-effort remove -all-static token from generated makefiles
         shell: msys2 {0}
         run: |
           set -euxo pipefail
           export PATH="/mingw64/bin:$PATH"
 
-          echo "---- occurrences BEFORE ----"
+          echo "---- BEFORE (-all-static occurrences) ----"
           grep -RIn -- "-all-static" src/Makefile src/Makefile.in src/Makefile.qt.include src/qt/Makefile 2>/dev/null || true
 
-          # best-effort 제거(없어도 ok)
           for f in src/Makefile src/Makefile.in src/Makefile.qt.include src/qt/Makefile; do
             if [ -f "$f" ]; then
-              # LIBTOOL_APP_LDFLAGS 라인 비우기
-              sed -i 's/^LIBTOOL_APP_LDFLAGS[[:space:]]*=.*$/LIBTOOL_APP_LDFLAGS =/g' "$f" || true
-              # 남아있는 -all-static 토큰 제거
               sed -i 's/-all-static//g' "$f" || true
-              # 혹시 들어간 -static 도 제거(토큰 수준)
-              sed -i 's/ -static / /g' "$f" || true
+              sed -i 's/^LIBTOOL_APP_LDFLAGS[[:space:]]*=.*$/LIBTOOL_APP_LDFLAGS =/g' "$f" || true
             fi
           done
 
-          echo "---- occurrences AFTER ----"
+          echo "---- AFTER (-all-static occurrences) ----"
           grep -RIn -- "-all-static" src/Makefile src/Makefile.in src/Makefile.qt.include src/qt/Makefile 2>/dev/null || true
 
-      # ------------------------------------------------------------
-      # 빌드 (핵심: make 변수 오버라이드로 -all-static 강제 무력화)
-      # ------------------------------------------------------------
-      - name: Build bitcoin-qt.exe (V=1, force dynamic by overriding LIBTOOL_APP_LDFLAGS)
+      - name: Build bitcoin-qt.exe (V=1, force dynamic at FINAL LINK)
         shell: msys2 {0}
         run: |
           set -euxo pipefail
           export PATH="/mingw64/bin:$PATH"
           cd src
 
-          echo "---- precheck: dry-run link line (must not contain -all-static/-static after override) ----"
-          if make -n V=1 LIBTOOL_APP_LDFLAGS= qt/bitcoin-qt.exe | grep -E -- "-all-static| -static "; then
-            echo "ERROR: static flags still appear even with LIBTOOL_APP_LDFLAGS override."
+          # 1) 최종 링크라인만 검사: qt/bitcoin-qt.exe 링크에 -all-static/-static 있으면 실패
+          echo "---- dry-run: check FINAL link line only ----"
+          make -n V=1 LIBTOOL_APP_LDFLAGS= LDFLAGS= qt/bitcoin-qt.exe \
+            | grep -E "(/bin/sh .*libtool.*--mode=link .*qt/bitcoin-qt\.exe|x86_64-w64-mingw32-g\+\+ .*qt/bitcoin-qt\.exe)" -n || true
+
+          if make -n V=1 LIBTOOL_APP_LDFLAGS= LDFLAGS= qt/bitcoin-qt.exe \
+              | grep -E "(/bin/sh .*libtool.*--mode=link .*qt/bitcoin-qt\.exe|x86_64-w64-mingw32-g\+\+ .*qt/bitcoin-qt\.exe)" \
+              | grep -E -- "(-all-static| -static )"
+          then
+            echo "ERROR: static flags appear in FINAL bitcoin-qt.exe link line."
             exit 1
           fi
 
-          # 실제 빌드
-          make -j1 V=1 LIBTOOL_APP_LDFLAGS= qt/bitcoin-qt.exe
+          # 2) 실제 빌드 (최종 링크에서 정적 강제 제거)
+          make -j1 V=1 LIBTOOL_APP_LDFLAGS= LDFLAGS= qt/bitcoin-qt.exe
 
           ls -la qt/bitcoin-qt.exe
-
           echo "---- DLL deps ----"
           x86_64-w64-mingw32-objdump -p qt/bitcoin-qt.exe | grep -i "DLL Name" || true
 
-      # ------------------------------------------------------------
-      # 패키징
-      #  - windeployqt 있으면 사용
-      #  - 없으면 수동 복사
-      # ------------------------------------------------------------
       - name: Package + zip
         shell: msys2 {0}
         run: |
@@ -263,10 +203,6 @@ jobs:
               cp -a /mingw64/share/qt5/plugins/styles/qwindowsvistastyle.dll dist/styles/
             fi
           fi
-
-          echo "---- dist ----"
-          ls -la dist || true
-          ls -la dist/platforms || true
 
           powershell -NoProfile -Command "Compress-Archive -Path dist\* -DestinationPath bitcoinbt-qt-win64.zip"
           ls -la bitcoinbt-qt-win64.zip
