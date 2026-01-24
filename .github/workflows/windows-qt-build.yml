@@ -1,7 +1,7 @@
 name: Build Windows bitcoin-qt.exe (MSYS2, Qt5 dynamic)
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: {}
 
 jobs:
   win-qt:
@@ -27,6 +27,8 @@ jobs:
             libtool
             pkgconf
             make
+            zip
+            unzip
             mingw-w64-x86_64-toolchain
             mingw-w64-x86_64-pkgconf
             mingw-w64-x86_64-qt5-base
@@ -38,8 +40,6 @@ jobs:
             mingw-w64-x86_64-qrencode
             mingw-w64-x86_64-zeromq
             mingw-w64-x86_64-libsodium
-            zip
-            unzip
 
       # ------------------------------------------------------------
       # 환경 검증 (팩트체크)
@@ -50,9 +50,14 @@ jobs:
           set -euxo pipefail
           export PATH="/mingw64/bin:$PATH"
 
-          pacman -Q | grep -E 'qt5-|qrencode|libevent|boost' || true
+          echo "MSYSTEM=$MSYSTEM"
+          which g++
+          g++ --version
 
-          # 동적 import libs는 반드시 존재해야 함
+          echo "---- packages (qt/qrencode/libevent/boost) ----"
+          pacman -Q | grep -E 'mingw-w64-x86_64-qt5-|mingw-w64-x86_64-qrencode|mingw-w64-x86_64-libevent|mingw-w64-x86_64-boost' || true
+
+          echo "---- Qt import libs (dynamic) must exist ----"
           ls -la /mingw64/lib/libQt5Core.dll.a
           ls -la /mingw64/lib/libQt5Gui.dll.a
           ls -la /mingw64/lib/libQt5Widgets.dll.a
@@ -60,18 +65,16 @@ jobs:
           ls -la /mingw64/lib/libQt5DBus.dll.a
           ls -la /mingw64/lib/libqrencode.dll.a
 
-          which g++
-          g++ --version
-
+          echo "---- Qt tools ----"
           which moc
           which uic
           which rcc
 
-          # windeployqt는 환경에 따라 없을 수 있음(없어도 빌드/패키징 가능: 아래에서 fallback)
+          echo "---- windeployqt presence (optional) ----"
           if command -v windeployqt >/dev/null 2>&1; then
             echo "windeployqt found: $(command -v windeployqt)"
           else
-            echo "windeployqt NOT found (will use manual Qt DLL/plugin copy fallback)."
+            echo "windeployqt NOT found (manual Qt DLL/plugin copy fallback will be used)."
           fi
 
       # ------------------------------------------------------------
@@ -82,7 +85,17 @@ jobs:
         run: |
           set -euxo pipefail
           export PATH="/mingw64/bin:$PATH"
+
           ./autogen.sh
+
+          # libtool 손상 체크: "| |" 같은 깨진 토큰 있으면 즉시 실패
+          if [ -f libtool ]; then
+            if grep -nE '\|\s*\|' libtool >/dev/null; then
+              echo "ERROR: libtool is corrupted (contains '| |')."
+              grep -nE '\|\s*\|' libtool | head -n 40 || true
+              exit 1
+            fi
+          fi
 
       # ------------------------------------------------------------
       # configure
@@ -102,6 +115,7 @@ jobs:
           MOC=/mingw64/bin/moc.exe
           UIC=/mingw64/bin/uic.exe
           RCC=/mingw64/bin/rcc.exe
+
           if [ -x /mingw64/bin/lrelease-qt5.exe ]; then
             LRELEASE=/mingw64/bin/lrelease-qt5.exe
           elif [ -x /mingw64/bin/lrelease.exe ]; then
@@ -121,19 +135,20 @@ jobs:
               --disable-tests \
               --disable-bench \
               --disable-fuzz-binary \
+              --disable-zmq \
               --without-miniupnpc \
               --without-natpmp
 
-          # configure 결과 요약(로그)
-          (grep -nE "with gui|with upnp|with natpmp|with qr" config.log || true)
+          echo "---- configure summary (grep) ----"
+          grep -nE "with gui|with upnp|with natpmp|with qr|with zmq" config.log || true
 
       # ------------------------------------------------------------
       # !!! 핵심 패치 !!!
-      # - Bitcoin Core autotools가 Windows에서 LIBTOOL_APP_LDFLAGS=-all-static을 넣는 케이스가 있음
-      # - 이게 남아있으면 최종 링크가 -static 강제되어 동적 Qt(.dll.a)에서 무조건 터짐
-      # - 해결: configure 이후에 src/Makefile.qt.include에서 -all-static 제거 (정확히 1곳)
+      # - Windows autotools에서 LIBTOOL_APP_LDFLAGS=-all-static이 들어가면
+      #   최종 링크가 -static 강제되어 Qt 동적 import lib(.dll.a)에서 반드시 터짐.
+      # - 실제 원천은 src/Makefile.qt.include의 LIBTOOL_APP_LDFLAGS 라인.
       # ------------------------------------------------------------
-      - name: Patch -all-static (the real source: src/Makefile.qt.include)
+      - name: Patch -all-static (src/Makefile.qt.include)
         shell: msys2 {0}
         run: |
           set -euxo pipefail
@@ -144,13 +159,13 @@ jobs:
           echo "---- BEFORE ----"
           grep -nE '^LIBTOOL_APP_LDFLAGS' src/Makefile.qt.include || true
 
-          # 정확히 이 라인만 비움 (정적 강제 제거)
+          # 이 줄만 비워서 정적 강제를 제거
           sed -i 's/^LIBTOOL_APP_LDFLAGS[[:space:]]*=.*$/LIBTOOL_APP_LDFLAGS =/' src/Makefile.qt.include
 
           echo "---- AFTER ----"
           grep -nE '^LIBTOOL_APP_LDFLAGS' src/Makefile.qt.include || true
 
-          # 검증: -all-static이 남아있으면 즉시 실패
+          echo "---- FAIL if -all-static remains anywhere relevant ----"
           if grep -RIn -- "-all-static" src/Makefile.qt.include src/Makefile src/qt/Makefile 2>/dev/null; then
             echo "ERROR: -all-static still present."
             exit 1
@@ -167,7 +182,7 @@ jobs:
 
           cd src
 
-          # 진단용: 링크 라인에서 -static이 없어야 정상
+          # 링크 라인 박제: 여기서 -static/-all-static 없어야 정상
           make -j1 V=1 qt/bitcoin-qt.exe
 
           ls -la qt/bitcoin-qt.exe
@@ -178,9 +193,9 @@ jobs:
       # ------------------------------------------------------------
       # 패키징
       # 1) windeployqt 있으면 사용
-      # 2) 없으면 수동 복사 fallback
+      # 2) 없으면 수동 복사 fallback (플러그인 platforms/qwindows.dll 포함)
       # ------------------------------------------------------------
-      - name: Package (windeployqt if available, else manual Qt copy) + zip
+      - name: Package + zip (windeployqt or manual fallback)
         shell: msys2 {0}
         run: |
           set -euxo pipefail
@@ -188,41 +203,40 @@ jobs:
 
           rm -rf dist
           mkdir -p dist
-
           cp -a src/qt/bitcoin-qt.exe dist/bitcoin-qt.exe
 
           if command -v windeployqt >/dev/null 2>&1; then
             echo "Using windeployqt..."
             windeployqt --release --no-translations --compiler-runtime dist/bitcoin-qt.exe
           else
-            echo "windeployqt not found -> manual Qt DLL + plugin copy fallback"
+            echo "windeployqt not found -> manual Qt DLL/plugin copy"
 
-            # 최소 Qt 런타임 DLL 복사
             cp -a /mingw64/bin/Qt5Core.dll dist/ || true
             cp -a /mingw64/bin/Qt5Gui.dll dist/ || true
             cp -a /mingw64/bin/Qt5Widgets.dll dist/ || true
             cp -a /mingw64/bin/Qt5Network.dll dist/ || true
             cp -a /mingw64/bin/Qt5DBus.dll dist/ || true
+
+            # MinGW 런타임
             cp -a /mingw64/bin/libgcc_s_seh-1.dll dist/ || true
             cp -a /mingw64/bin/libstdc++-6.dll dist/ || true
             cp -a /mingw64/bin/libwinpthread-1.dll dist/ || true
 
-            # 플랫폼 플러그인(qwindows) 없으면 GUI 실행 안 됨
+            # Qt 플랫폼 플러그인 (이거 없으면 실행이 안 됨)
             mkdir -p dist/platforms
             cp -a /mingw64/share/qt5/plugins/platforms/qwindows.dll dist/platforms/ || true
 
-            # 스타일 플러그인(없어도 실행은 되지만, 일부 환경에서 경고 줄임)
+            # (선택) 스타일 플러그인
             mkdir -p dist/styles
             if [ -f /mingw64/share/qt5/plugins/styles/qwindowsvistastyle.dll ]; then
               cp -a /mingw64/share/qt5/plugins/styles/qwindowsvistastyle.dll dist/styles/ || true
             fi
           fi
 
-          # 결과 확인
+          echo "---- dist tree ----"
           ls -la dist || true
           ls -la dist/platforms || true
 
-          # zip
           powershell -NoProfile -Command "Compress-Archive -Path dist\* -DestinationPath bitcoinbt-qt-win64.zip"
           ls -la bitcoinbt-qt-win64.zip
 
