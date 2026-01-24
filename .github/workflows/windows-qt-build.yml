@@ -13,7 +13,7 @@ jobs:
 
       # ------------------------------------------------------------
       # MSYS2 + MINGW64 + Qt(동적) 설치
-      #  - qt5-static 절대 설치하지 말 것 (GUI가 -all-static으로 굳어짐)
+      #  - qt5-static 절대 설치 금지
       # ------------------------------------------------------------
       - name: Setup MSYS2 (MINGW64) + deps (NO qt5-static)
         uses: msys2/setup-msys2@v2
@@ -41,8 +41,7 @@ jobs:
             mingw-w64-x86_64-miniupnpc
 
       # ------------------------------------------------------------
-      # 환경 검증
-      #  - Qt import lib(.dll.a) 존재해야 동적 링크 가능
+      # 환경 검증: Qt 동적 import libs(.dll.a) 확인 + qt5-static 금지
       # ------------------------------------------------------------
       - name: Verify toolchain & Qt (dynamic import libs)
         shell: msys2 {0}
@@ -56,29 +55,27 @@ jobs:
           g++ --version
           ld --version
 
-          # qt5-static이 설치되면 안 됨
+          # qt5-static 설치되면 즉시 실패
           if pacman -Q | grep -q "mingw-w64-x86_64-qt5-static"; then
-            echo "ERROR: mingw-w64-x86_64-qt5-static is installed. Remove it."
+            echo "ERROR: mingw-w64-x86_64-qt5-static is installed."
             exit 1
           fi
 
-          # 동적 import libs 존재 확인 (중요: .dll.a)
+          # Qt import libs (.dll.a) 반드시 있어야 동적 링크가 가능
           ls -la /mingw64/lib/libQt5Core.dll.a
           ls -la /mingw64/lib/libQt5Gui.dll.a
           ls -la /mingw64/lib/libQt5Widgets.dll.a
           ls -la /mingw64/lib/libQt5Network.dll.a
           ls -la /mingw64/lib/libQt5DBus.dll.a
 
-          # qrencode (msys2 패키지에 따라 .a일 수 있음)
+          # qrencode는 패키지 구성에 따라 .dll.a 또는 .a
           (ls -la /mingw64/lib/libqrencode.dll.a || ls -la /mingw64/lib/libqrencode.a)
 
-          # pkg-config로 Qt 플래그 확인
           pkg-config --modversion Qt5Core
           pkg-config --libs Qt5Core
           pkg-config --libs Qt5Widgets
           pkg-config --libs Qt5Network
 
-          # Qt tools
           test -x /mingw64/bin/moc.exe
           test -x /mingw64/bin/uic.exe
           test -x /mingw64/bin/rcc.exe
@@ -94,10 +91,9 @@ jobs:
           ./autogen.sh
 
       # ------------------------------------------------------------
-      # configure (동적 GUI 강제)
-      #  - 여기서 중요한 건 "qt5-static 미설치" + "gui-static 끄기"
+      # configure
       # ------------------------------------------------------------
-      - name: Configure (force dynamic Qt GUI)
+      - name: Configure (qt5, no gui-static)
         shell: msys2 {0}
         run: |
           set -euxo pipefail
@@ -126,8 +122,6 @@ jobs:
               --with-qt-incdir=/mingw64/include/qt5 \
               --with-qt-libdir=/mingw64/lib \
               --with-qt-bindir=/mingw64/bin \
-              --disable-static \
-              --enable-shared \
               --disable-gui-static \
               --disable-wallet \
               --disable-tests \
@@ -136,38 +130,54 @@ jobs:
               --disable-zmq \
               --without-miniupnpc
 
-          # (참고) configure 결과에 -all-static / -static 흔적이 보이면 후단에서 제거함
-          (cd src && grep -RIn -- "-all-static" Makefile* qt/Makefile* 2>/dev/null || true)
-          (cd src && grep -RIn -- " -static"  Makefile* qt/Makefile* 2>/dev/null || true)
-
       # ------------------------------------------------------------
-      # 핵심: Makefile에 박힌 -all-static / -static 강제 제거
-      #  - configure가 만들어낸 Makefile에 -all-static이 남아있으면 Qt가 .a를 찾다가 터짐
+      # [핵심] -all-static / -static 강제 제거 + "남아있으면 즉시 실패"
+      #  - 네 로그처럼 src/Makefile 레시피에 -all-static이 박혀있는 케이스를 제거
       # ------------------------------------------------------------
-      - name: Force remove -all-static / -static from Makefiles
+      - name: Strip -all-static/-static from generated Makefiles (FAIL if remains)
         shell: msys2 {0}
         run: |
           set -euxo pipefail
           export PATH="/mingw64/bin:$PATH"
 
-          cd src
-
-          echo "===== BEFORE ====="
+          echo "===== scan (before) ====="
           grep -RIn -- "-all-static" . || true
           grep -RIn -- " -static" . || true
 
-          find . -type f \( -name "Makefile" -o -name "Makefile.*" \) | while read -r f; do
-            sed -i 's/-all-static//g' "$f" || true
-            sed -i 's/ -static / /g' "$f" || true
-            sed -i 's/ -static$/ /g' "$f" || true
-          done
+          # -all-static 들어있는 파일만 정확히 찾아서 치환 (전체 find보다 확실함)
+          files_all_static="$(grep -RIl -- "-all-static" . || true)"
+          if [ -n "${files_all_static}" ]; then
+            echo "${files_all_static}" | while read -r f; do
+              echo "patch: $f"
+              sed -i 's/-all-static//g' "$f" || true
+            done
+          fi
 
-          echo "===== AFTER ====="
-          grep -RIn -- "-all-static" . || true
-          grep -RIn -- " -static" . || true
+          # libtool 레시피에 -static이 들어간 파일도 제거
+          files_static="$(grep -RIl -- " -static" . || true)"
+          if [ -n "${files_static}" ]; then
+            echo "${files_static}" | while read -r f; do
+              echo "patch: $f"
+              # 중간/끝 형태 모두 제거
+              sed -i 's/ -static / /g' "$f" || true
+              sed -i 's/ -static$/ /g' "$f" || true
+            done
+          fi
+
+          echo "===== scan (after) ====="
+          # 남아있으면 여기서 즉시 실패시켜야 다음 로그가 깔끔해짐
+          if grep -RIn -- "-all-static" .; then
+            echo "ERROR: -all-static still present after patch."
+            exit 1
+          fi
+          # -static은 다른 맥락에도 있을 수 있어서, '링크 레시피' 중심으로만 실패시키고 싶으면 아래처럼 좁혀도 됨
+          if grep -RIn -- " -static" src/Makefile src/qt/Makefile* 2>/dev/null; then
+            echo "ERROR: -static still present in src/Makefile or src/qt/Makefile*."
+            exit 1
+          fi
 
       # ------------------------------------------------------------
-      # 빌드 (링크 커맨드 출력 + 전체 빌드)
+      # 빌드 (V=1 링크 라인 출력)
       # ------------------------------------------------------------
       - name: Build bitcoin-qt.exe (V=1 link line)
         shell: msys2 {0}
@@ -177,7 +187,7 @@ jobs:
 
           cd src
 
-          # 링크 라인 확인 (원인 고정)
+          # 링크 라인부터 (여기서 -all-static/-static이 다시 나오면 위 단계가 실패해야 함)
           make -j1 V=1 qt/bitcoin-qt.exe
 
           # 전체 빌드
