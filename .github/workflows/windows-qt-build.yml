@@ -11,9 +11,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # ------------------------------------------------------------
-      # MSYS2 + MINGW64 + Qt5 (dynamic) + deps
-      # ------------------------------------------------------------
       - name: Setup MSYS2 (MINGW64) + deps
         uses: msys2/setup-msys2@v2
         with:
@@ -40,9 +37,6 @@ jobs:
             zip
             unzip
 
-      # ------------------------------------------------------------
-      # Verify environment (팩트체크)
-      # ------------------------------------------------------------
       - name: Verify toolchain + Qt import libs
         shell: msys2 {0}
         run: |
@@ -50,13 +44,9 @@ jobs:
           export PATH="/mingw64/bin:$PATH"
 
           echo "MSYSTEM=$MSYSTEM"
-          which g++
           g++ --version
 
-          echo "---- key packages ----"
-          pacman -Q | grep -E 'mingw-w64-x86_64-qt5-|qrencode|libevent|boost' || true
-
-          echo "---- Qt import libs (dynamic) must exist ----"
+          echo "---- Qt dynamic import libs must exist ----"
           ls -la /mingw64/lib/libQt5Core.dll.a
           ls -la /mingw64/lib/libQt5Gui.dll.a
           ls -la /mingw64/lib/libQt5Widgets.dll.a
@@ -70,9 +60,34 @@ jobs:
           which rcc
           ls -la /mingw64/bin/windeployqt* || true
 
-      # ------------------------------------------------------------
-      # autogen
-      # ------------------------------------------------------------
+      # ✅ 핵심: autogen/configure가 생성물을 덮어쓰기 전에 "입력(autotools 소스)"에서 -all-static 제거
+      - name: Patch autotools sources (remove -all-static at its source)
+        shell: msys2 {0}
+        run: |
+          set -euxo pipefail
+          export PATH="/mingw64/bin:$PATH"
+
+          echo "---- searching '-all-static' in repo (source side) ----"
+          hits="$(grep -RIn -- '-all-static' \
+            configure.ac build-aux m4 src 2>/dev/null || true)"
+          if [ -n "$hits" ]; then
+            echo "$hits"
+          else
+            echo "No -all-static occurrences found in checked paths (ok)."
+          fi
+
+          # -all-static이 발견된 파일들만 안전하게 치환
+          while IFS= read -r f; do
+            [ -z "$f" ] && continue
+            sed -i 's/-all-static//g' "$f"
+          done < <(grep -RIl -- '-all-static' configure.ac build-aux m4 src 2>/dev/null || true)
+
+          echo "---- verify no '-all-static' remains in those paths ----"
+          if grep -RIn -- '-all-static' configure.ac build-aux m4 src 2>/dev/null; then
+            echo "ERROR: -all-static still present in autotools sources."
+            exit 1
+          fi
+
       - name: Autogen
         shell: msys2 {0}
         run: |
@@ -81,43 +96,13 @@ jobs:
           ./autogen.sh
 
           # libtool 손상 체크("| |" 같은 이상 토큰 있으면 즉시 실패)
-          if [ -f libtool ]; then
-            if grep -nE '\|\s*\|' libtool >/dev/null; then
-              echo "ERROR: libtool is corrupted (contains '| |')."
-              grep -nE '\|\s*\|' libtool | head -n 80 || true
-              exit 1
-            fi
-          fi
-
-      # ------------------------------------------------------------
-      # ✅ 핵심 패치 (configure 전에 해야 함)
-      # -all-static은 configure가 Makefile.qt.include에 박아넣음
-      # 원천 템플릿: src/Makefile.qt.include.in
-      # ------------------------------------------------------------
-      - name: Patch qt template (remove -all-static at source)
-        shell: msys2 {0}
-        run: |
-          set -euxo pipefail
-          export PATH="/mingw64/bin:$PATH"
-
-          test -f src/Makefile.qt.include.in
-
-          echo "---- BEFORE ----"
-          grep -n "all-static" src/Makefile.qt.include.in || true
-
-          # 원천에서 제거
-          sed -i 's/-all-static//g' src/Makefile.qt.include.in
-
-          echo "---- AFTER ----"
-          if grep -n "all-static" src/Makefile.qt.include.in; then
-            echo "ERROR: -all-static still present in src/Makefile.qt.include.in"
+          if [ -f libtool ] && grep -nE '\|\s*\|' libtool >/dev/null; then
+            echo "ERROR: libtool is corrupted (contains '| |')."
+            grep -nE '\|\s*\|' libtool | head -n 80 || true
             exit 1
           fi
 
-      # ------------------------------------------------------------
-      # configure
-      # ------------------------------------------------------------
-      - name: Configure (Qt5 GUI, NO UPNP)
+      - name: Configure (Qt5 GUI, NO UPNP, force NO static flags)
         shell: msys2 {0}
         run: |
           set -euxo pipefail
@@ -125,6 +110,12 @@ jobs:
 
           export PKG_CONFIG="/mingw64/bin/pkg-config"
           export PKG_CONFIG_PATH="/mingw64/lib/pkgconfig:/mingw64/share/pkgconfig"
+
+          # ✅ 플래그 오염 차단(여기서 -static 류를 원천 봉쇄)
+          export CFLAGS="-O2 -g"
+          export CXXFLAGS="-O2 -g -std=c++17"
+          export LDFLAGS=""
+          export LIBS=""
 
           MOC=/mingw64/bin/moc.exe
           UIC=/mingw64/bin/uic.exe
@@ -152,16 +143,13 @@ jobs:
               --without-miniupnpc \
               --without-natpmp
 
-          echo "---- verify generated include does NOT contain -all-static ----"
-          grep -n "all-static" src/Makefile.qt.include && {
-            echo "ERROR: -all-static leaked into src/Makefile.qt.include"
+          echo "---- quick check: generated files shouldn't contain -all-static ----"
+          grep -RIn -- '-all-static' src/Makefile src/Makefile.qt.include src/qt/Makefile 2>/dev/null && {
+            echo "ERROR: -all-static leaked into generated makefiles."
             exit 1
           } || true
 
-      # ------------------------------------------------------------
-      # Build (V=1) + FACT CHECK final link
-      # ------------------------------------------------------------
-      - name: Build bitcoin-qt.exe (V=1) + verify no static flags in final link
+      - name: Build bitcoin-qt.exe (V=1) + verify final link is dynamic
         shell: msys2 {0}
         run: |
           set -euxo pipefail
@@ -169,35 +157,30 @@ jobs:
           cd src
 
           echo "---- dry-run: final link line check ----"
-          make -n V=1 qt/bitcoin-qt.exe \
-            | grep -E "(/bin/sh .*libtool.*--mode=link .*qt/bitcoin-qt\.exe|x86_64-w64-mingw32-g\+\+ .*qt/bitcoin-qt\.exe)" -n || true
+          linkline="$(make -n V=1 qt/bitcoin-qt.exe \
+            | grep -E '(/bin/sh .*libtool.*--mode=link .*qt/bitcoin-qt\.exe|x86_64-w64-mingw32-g\+\+ .*qt/bitcoin-qt\.exe)' \
+            | tail -n 1 || true)"
+          echo "$linkline"
 
-          # FINAL link line에 -all-static / -static 있으면 즉시 실패
-          if make -n V=1 qt/bitcoin-qt.exe \
-              | grep -E "(/bin/sh .*libtool.*--mode=link .*qt/bitcoin-qt\.exe|x86_64-w64-mingw32-g\+\+ .*qt/bitcoin-qt\.exe)" \
-              | grep -E -- "(-all-static| -static )"
-          then
+          # FINAL 링크 라인에 -all-static 또는 ' -static ' 있으면 실패
+          echo "$linkline" | grep -E -- '(-all-static|[[:space:]]-static[[:space:]])' && {
             echo "ERROR: static flags appear in FINAL bitcoin-qt.exe link line."
             exit 1
-          fi
+          } || true
 
-          # build
           make -j1 V=1 qt/bitcoin-qt.exe
           ls -la qt/bitcoin-qt.exe
 
           echo "---- DLL deps (objdump) ----"
           x86_64-w64-mingw32-objdump -p qt/bitcoin-qt.exe | grep -i "DLL Name" || true
 
-          # windeployqt가 Qt exe로 인식하려면 Qt5Core.dll 의존성이 보여야 함
-          if ! x86_64-w64-mingw32-objdump -p qt/bitcoin-qt.exe | grep -qi "Qt5Core.dll"; then
-            echo "ERROR: Qt5Core.dll dependency not found -> windeployqt will fail."
+          # Qt 동적 exe면 Qt5Core.dll 의존성이 보여야 정상
+          x86_64-w64-mingw32-objdump -p qt/bitcoin-qt.exe | grep -qi "Qt5Core.dll" || {
+            echo "ERROR: Qt5Core.dll dependency not found (still looks static)."
             exit 1
-          fi
+          }
 
-      # ------------------------------------------------------------
-      # Package (windeployqt if possible, else manual) + zip
-      # ------------------------------------------------------------
-      - name: Package + zip
+      - name: Package + zip (windeployqt, fallback to manual)
         shell: msys2 {0}
         run: |
           set -euxo pipefail
@@ -207,7 +190,6 @@ jobs:
           mkdir -p dist
           cp -a src/qt/bitcoin-qt.exe dist/bitcoin-qt.exe
 
-          # Qt 플러그인 경로(일부 환경에서 필요)
           export QT_PLUGIN_PATH="/mingw64/share/qt5/plugins"
 
           WINDEPLOYQT=""
@@ -217,7 +199,6 @@ jobs:
 
           if [ -n "$WINDEPLOYQT" ]; then
             echo "Using $WINDEPLOYQT"
-            # 실패하면 fallback으로 넘어감
             "$WINDEPLOYQT" --release --no-translations --compiler-runtime dist/bitcoin-qt.exe || WINDEPLOYQT=""
           fi
 
