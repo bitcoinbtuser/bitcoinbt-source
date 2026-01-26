@@ -72,7 +72,6 @@ jobs:
           export PATH="/mingw64/bin:$PATH"
           ./autogen.sh
 
-          # libtool 손상 체크("| |" 같은 이상 토큰 있으면 즉시 실패)
           if [ -f libtool ] && grep -nE '\|\s*\|' libtool >/dev/null; then
             echo "ERROR: libtool is corrupted (contains '| |')."
             grep -nE '\|\s*\|' libtool | head -n 80 || true
@@ -88,7 +87,6 @@ jobs:
           export PKG_CONFIG="/mingw64/bin/pkg-config"
           export PKG_CONFIG_PATH="/mingw64/lib/pkgconfig:/mingw64/share/pkgconfig"
 
-          # -static 류 오염 차단(명시)
           export CFLAGS="-O2 -g"
           export CXXFLAGS="-O2 -g -std=c++17"
           export LDFLAGS=""
@@ -120,40 +118,34 @@ jobs:
               --without-miniupnpc \
               --without-natpmp
 
-      # ✅ 여기서부터는 "최종 링크라인"만 강제 통제한다
-      # (특정 파일 존재 가정/강제 patch는 제거)
-      - name: Build bitcoin-qt.exe (V=1) + hard-check final link is dynamic
+      - name: Build bitcoin-qt.exe (V=1) + verify REAL exe is dynamic Qt
         shell: msys2 {0}
         run: |
           set -euxo pipefail
           export PATH="/mingw64/bin:$PATH"
           cd src
 
-          echo "---- dry-run: final link line check ----"
-          linkline="$(make -n V=1 \
-            CFLAGS="-O2 -g" CXXFLAGS="-O2 -g -std=c++17" LDFLAGS="" LIBTOOL_APP_LDFLAGS="" \
-            qt/bitcoin-qt.exe \
-            | grep -E '(/bin/sh .*libtool.*--mode=link .*qt/bitcoin-qt\.exe|x86_64-w64-mingw32-g\+\+ .*qt/bitcoin-qt\.exe)' \
-            | tail -n 1 || true)"
-          echo "$linkline"
-
-          echo "$linkline" | grep -E -- '(-all-static|[[:space:]]-static[[:space:]])' && {
-            echo "ERROR: static flags appear in FINAL bitcoin-qt.exe link line."
-            exit 1
-          } || true
-
+          echo "---- build ----"
           make -j1 V=1 \
             CFLAGS="-O2 -g" CXXFLAGS="-O2 -g -std=c++17" LDFLAGS="" LIBTOOL_APP_LDFLAGS="" \
             qt/bitcoin-qt.exe
 
-          ls -la qt/bitcoin-qt.exe
+          # ✅ 핵심: libtool 런처(qt/bitcoin-qt.exe) 말고 "진짜 본체"를 잡는다
+          REAL_EXE="qt/.libs/bitcoin-qt.exe"
+          if [ ! -f "$REAL_EXE" ]; then
+            REAL_EXE="qt/bitcoin-qt.exe"
+          fi
+
+          echo "REAL_EXE=$REAL_EXE"
+          ls -la "$REAL_EXE"
 
           echo "---- DLL deps (objdump) ----"
-          objdump -p qt/bitcoin-qt.exe | grep -i "DLL Name" || true
+          objdump -p "$REAL_EXE" | grep -i "DLL Name" || true
 
           # 동적 Qt면 Qt5Core.dll 의존성이 반드시 보여야 함
-          objdump -p qt/bitcoin-qt.exe | grep -qi "Qt5Core.dll" || {
-            echo "ERROR: Qt5Core.dll dependency not found -> still not a dynamic Qt exe."
+          objdump -p "$REAL_EXE" | grep -qi "Qt5Core.dll" || {
+            echo "ERROR: Qt5Core.dll dependency not found in REAL_EXE."
+            echo "If REAL_EXE is qt/bitcoin-qt.exe and it's small, it's likely a libtool launcher."
             exit 1
           }
 
@@ -165,7 +157,14 @@ jobs:
 
           rm -rf dist
           mkdir -p dist
-          cp -a src/qt/bitcoin-qt.exe dist/bitcoin-qt.exe
+
+          # ✅ 패키징도 "진짜 본체"를 복사
+          REAL_EXE="src/qt/.libs/bitcoin-qt.exe"
+          if [ ! -f "$REAL_EXE" ]; then
+            REAL_EXE="src/qt/bitcoin-qt.exe"
+          fi
+          echo "Packaging REAL_EXE=$REAL_EXE"
+          cp -a "$REAL_EXE" dist/bitcoin-qt.exe
 
           export QT_PLUGIN_PATH="/mingw64/share/qt5/plugins"
 
