@@ -130,7 +130,6 @@ jobs:
             CFLAGS="-O2 -g" CXXFLAGS="-O2 -g -std=c++17" LDFLAGS="" LIBTOOL_APP_LDFLAGS="" \
             qt/bitcoin-qt.exe
 
-          # ✅ 핵심: libtool 런처(qt/bitcoin-qt.exe) 말고 "진짜 본체"를 잡는다
           REAL_EXE="qt/.libs/bitcoin-qt.exe"
           if [ ! -f "$REAL_EXE" ]; then
             REAL_EXE="qt/bitcoin-qt.exe"
@@ -142,14 +141,12 @@ jobs:
           echo "---- DLL deps (objdump) ----"
           objdump -p "$REAL_EXE" | grep -i "DLL Name" || true
 
-          # 동적 Qt면 Qt5Core.dll 의존성이 반드시 보여야 함
           objdump -p "$REAL_EXE" | grep -qi "Qt5Core.dll" || {
             echo "ERROR: Qt5Core.dll dependency not found in REAL_EXE."
-            echo "If REAL_EXE is qt/bitcoin-qt.exe and it's small, it's likely a libtool launcher."
             exit 1
           }
 
-      - name: Package + zip (windeployqt, fallback to manual)
+      - name: Package + zip (windeployqt + force-copy MSYS2 runtime DLLs)
         shell: msys2 {0}
         run: |
           set -euxo pipefail
@@ -158,7 +155,7 @@ jobs:
           rm -rf dist
           mkdir -p dist
 
-          # ✅ 패키징도 "진짜 본체"를 복사
+          # ✅ always package the REAL exe
           REAL_EXE="src/qt/.libs/bitcoin-qt.exe"
           if [ ! -f "$REAL_EXE" ]; then
             REAL_EXE="src/qt/bitcoin-qt.exe"
@@ -168,6 +165,7 @@ jobs:
 
           export QT_PLUGIN_PATH="/mingw64/share/qt5/plugins"
 
+          # ---- run windeployqt (best effort) ----
           WINDEPLOYQT=""
           for c in /mingw64/bin/windeployqt-qt5.exe /mingw64/bin/windeployqt.exe; do
             if [ -x "$c" ]; then WINDEPLOYQT="$c"; break; fi
@@ -175,28 +173,63 @@ jobs:
 
           if [ -n "$WINDEPLOYQT" ]; then
             echo "Using $WINDEPLOYQT"
-            "$WINDEPLOYQT" --release --no-translations --compiler-runtime dist/bitcoin-qt.exe || WINDEPLOYQT=""
+            # --dir dist로 결과 위치 고정
+            "$WINDEPLOYQT" --release --no-translations --compiler-runtime --dir dist dist/bitcoin-qt.exe || true
           fi
 
-          if [ -z "$WINDEPLOYQT" ]; then
-            echo "windeployqt failed/not found -> manual Qt DLL + plugins copy"
-            cp -a /mingw64/bin/Qt5Core.dll dist/
-            cp -a /mingw64/bin/Qt5Gui.dll dist/
-            cp -a /mingw64/bin/Qt5Widgets.dll dist/
-            cp -a /mingw64/bin/Qt5Network.dll dist/
-            cp -a /mingw64/bin/Qt5DBus.dll dist/
-            cp -a /mingw64/bin/libgcc_s_seh-1.dll dist/ || true
-            cp -a /mingw64/bin/libstdc++-6.dll dist/ || true
-            cp -a /mingw64/bin/libwinpthread-1.dll dist/ || true
-
-            mkdir -p dist/platforms
-            cp -a /mingw64/share/qt5/plugins/platforms/qwindows.dll dist/platforms/
-
-            mkdir -p dist/styles
-            if [ -f /mingw64/share/qt5/plugins/styles/qwindowsvistastyle.dll ]; then
-              cp -a /mingw64/share/qt5/plugins/styles/qwindowsvistastyle.dll dist/styles/
+          # ---- ensure minimal Qt DLLs (in case windeployqt missed) ----
+          for d in Qt5Core.dll Qt5Gui.dll Qt5Widgets.dll Qt5Network.dll Qt5DBus.dll; do
+            if [ ! -f "dist/$d" ] && [ -f "/mingw64/bin/$d" ]; then
+              cp -a "/mingw64/bin/$d" dist/
             fi
+          done
+
+          # ---- plugins (platforms/styles) ensure ----
+          mkdir -p dist/platforms
+          if [ -f /mingw64/share/qt5/plugins/platforms/qwindows.dll ] && [ ! -f dist/platforms/qwindows.dll ]; then
+            cp -a /mingw64/share/qt5/plugins/platforms/qwindows.dll dist/platforms/
           fi
+
+          mkdir -p dist/styles
+          if [ -f /mingw64/share/qt5/plugins/styles/qwindowsvistastyle.dll ] && [ ! -f dist/styles/qwindowsvistastyle.dll ]; then
+            cp -a /mingw64/share/qt5/plugins/styles/qwindowsvistastyle.dll dist/styles/
+          fi
+
+          # ✅ 핵심: MSYS2 런타임 DLL 강제 포함 (네가 실제로 에러 본 것들 포함)
+          # libevent-*.dll (ex: libevent-7.dll)
+          cp -a /mingw64/bin/libevent-*.dll dist/ 2>/dev/null || true
+          # double-conversion (Qt dependency)
+          cp -a /mingw64/bin/libdouble-conversion.dll dist/ 2>/dev/null || true
+          # ICU set (Qt dependency)
+          cp -a /mingw64/bin/libicu*.dll dist/ 2>/dev/null || true
+
+          # mingw runtime trio
+          cp -a /mingw64/bin/libgcc_s_seh-1.dll dist/ 2>/dev/null || true
+          cp -a /mingw64/bin/libstdc++-6.dll dist/ 2>/dev/null || true
+          cp -a /mingw64/bin/libwinpthread-1.dll dist/ 2>/dev/null || true
+
+          # (자주 같이 요구되는 것들 - 있으면 포함)
+          cp -a /mingw64/bin/zlib1.dll dist/ 2>/dev/null || true
+          cp -a /mingw64/bin/libpcre2-16-0.dll dist/ 2>/dev/null || true
+          cp -a /mingw64/bin/libharfbuzz-0.dll dist/ 2>/dev/null || true
+          cp -a /mingw64/bin/libfreetype-6.dll dist/ 2>/dev/null || true
+          cp -a /mingw64/bin/libpng16-16.dll dist/ 2>/dev/null || true
+          cp -a /mingw64/bin/libglib-2.0-0.dll dist/ 2>/dev/null || true
+          cp -a /mingw64/bin/libintl-8.dll dist/ 2>/dev/null || true
+          cp -a /mingw64/bin/libiconv-2.dll dist/ 2>/dev/null || true
+
+          # ---- sanity check on packaged exe ----
+          echo "---- dist exe DLL deps (objdump) ----"
+          objdump -p dist/bitcoin-qt.exe | grep -i "DLL Name" || true
+
+          # 강제 체크(최소한 Qt + libevent 중 하나는 잡히게)
+          objdump -p dist/bitcoin-qt.exe | grep -qi "Qt5Core.dll" || {
+            echo "ERROR: packaged exe still doesn't depend on Qt5Core.dll"
+            exit 1
+          }
+
+          echo "---- dist content ----"
+          ls -la dist | sed -n '1,200p'
 
           powershell -NoProfile -Command "Compress-Archive -Path dist\* -DestinationPath bitcoinbt-qt-win64.zip"
           ls -la bitcoinbt-qt-win64.zip
