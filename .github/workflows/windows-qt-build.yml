@@ -35,7 +35,7 @@ jobs:
             mingw-w64-x86_64-zeromq
             mingw-w64-x86_64-libsodium
 
-            # ✅ 네가 실제로 본 누락 DLL 4종 대응 패키지
+    
             mingw-w64-x86_64-dbus
             mingw-w64-x86_64-zstd
             mingw-w64-x86_64-md4c
@@ -168,7 +168,7 @@ jobs:
           rm -rf dist
           mkdir -p dist
 
-          # ✅ always package the REAL exe
+          #  always package the REAL exe
           REAL_EXE="src/qt/.libs/bitcoin-qt.exe"
           if [ ! -f "$REAL_EXE" ]; then
             REAL_EXE="src/qt/bitcoin-qt.exe"
@@ -207,7 +207,6 @@ jobs:
             cp -a /mingw64/share/qt5/plugins/styles/qwindowsvistastyle.dll dist/styles/
           fi
 
-          # ✅ 기본 런타임(있으면 포함)
           cp -a /mingw64/bin/libevent-*.dll dist/ 2>/dev/null || true
           cp -a /mingw64/bin/libdouble-conversion.dll dist/ 2>/dev/null || true
           cp -a /mingw64/bin/libicu*.dll dist/ 2>/dev/null || true
@@ -223,7 +222,7 @@ jobs:
           cp -a /mingw64/bin/libintl-8.dll dist/ 2>/dev/null || true
           cp -a /mingw64/bin/libiconv-2.dll dist/ 2>/dev/null || true
 
-          # ✅ (핵심) dist/bitcoin-qt.exe가 요구하는 DLL을 /mingw64/bin에서 자동 수집해서 dist로 복사
+          
           MINGW_BIN="/mingw64/bin"
           echo "---- auto-copy dependent DLLs from $MINGW_BIN ----"
           objdump -p dist/bitcoin-qt.exe | awk -F': ' '/DLL Name/ {print $2}' | while read -r dll; do
@@ -233,7 +232,7 @@ jobs:
             fi
           done
 
-          # ✅ 네가 실제로 본 4개 DLL은 한번 더 강제 포함(안전빵)
+          
           for f in libdbus-1-3.dll libzstd.dll libmd4c.dll libgraphite2.dll; do
             if [ -f "$MINGW_BIN/$f" ] && [ ! -f "dist/$f" ]; then
               echo "force-copy $f"
