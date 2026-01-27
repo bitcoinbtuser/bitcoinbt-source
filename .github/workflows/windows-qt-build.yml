@@ -11,7 +11,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # 누락 DLL 방지용 패키지(dbus/zstd/md4c/graphite2/brotli/bzip2/pcre2) 포함
+      # 누락 DLL 방지용 + Wallet(BDB) 포함
       - name: Setup MSYS2 (MINGW64) + deps
         uses: msys2/setup-msys2@v2
         with:
@@ -42,6 +42,7 @@ jobs:
             mingw-w64-x86_64-brotli
             mingw-w64-x86_64-bzip2
             mingw-w64-x86_64-pcre2
+            mingw-w64-x86_64-db
             zip
             unzip
 
@@ -83,6 +84,10 @@ jobs:
           ls -la /mingw64/bin/libbz2-1.dll || true
           ls -la /mingw64/bin/libpcre2-8-0.dll || true
 
+          echo "---- Wallet(BDB) libs (best-effort) ----"
+          ls -la /mingw64/bin/libdb*.dll || true
+          ls -la /mingw64/lib/libdb*.a || true
+
       - name: Autogen
         shell: msys2 {0}
         run: |
@@ -96,7 +101,7 @@ jobs:
             exit 1
           fi
 
-      - name: Configure (Qt5 GUI, NO UPNP, clean flags)
+      - name: Configure (Qt5 GUI, Wallet ON, NO UPNP, clean flags)
         shell: msys2 {0}
         run: |
           set -euxo pipefail
@@ -128,7 +133,7 @@ jobs:
               --with-qt-incdir=/mingw64/include/qt5 \
               --with-qt-libdir=/mingw64/lib \
               --with-qt-bindir=/mingw64/bin \
-              --disable-wallet \
+              --enable-wallet \
               --disable-tests \
               --disable-bench \
               --disable-fuzz-binary \
@@ -230,13 +235,16 @@ jobs:
           cp -a /mingw64/bin/libintl-8.dll dist/ 2>/dev/null || true
           cp -a /mingw64/bin/libiconv-2.dll dist/ 2>/dev/null || true
 
-          # ✅ Qt/harfbuzz/freetype 하위 의존성(팝업 반복 차단 핵심)
+          # Qt/harfbuzz/freetype 하위 의존성(팝업 반복 차단 핵심)
           cp -a /mingw64/bin/libbrotlidec.dll dist/ 2>/dev/null || true
           cp -a /mingw64/bin/libbrotlicommon.dll dist/ 2>/dev/null || true
           cp -a /mingw64/bin/libbz2-1.dll dist/ 2>/dev/null || true
           cp -a /mingw64/bin/libpcre2-8-0.dll dist/ 2>/dev/null || true
 
-          # ✅ auto-copy EXE direct deps from /mingw64/bin (best-effort)
+          # ✅ Wallet(BDB) 런타임 DLL (있으면 포함)
+          cp -a /mingw64/bin/libdb*.dll dist/ 2>/dev/null || true
+
+          # auto-copy EXE direct deps from /mingw64/bin (best-effort)
           MINGW_BIN="/mingw64/bin"
           echo "---- auto-copy dependent DLLs from $MINGW_BIN ----"
           objdump -p dist/bitcoin-qt.exe | awk -F': ' '/DLL Name/ {print $2}' | while read -r dll; do
@@ -246,7 +254,7 @@ jobs:
             fi
           done
 
-          # ✅ force include: the ones you already saw missing earlier
+          # force include: the ones you already saw missing earlier
           for f in libdbus-1-3.dll libzstd.dll libmd4c.dll libgraphite2.dll; do
             if [ -f "$MINGW_BIN/$f" ] && [ ! -f "dist/$f" ]; then
               echo "force-copy $f"
