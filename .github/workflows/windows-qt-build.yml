@@ -11,6 +11,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # 누락 DLL 방지용 패키지(dbus/zstd/md4c/graphite2/brotli/bzip2/pcre2) 포함
       - name: Setup MSYS2 (MINGW64) + deps
         uses: msys2/setup-msys2@v2
         with:
@@ -34,13 +35,13 @@ jobs:
             mingw-w64-x86_64-qrencode
             mingw-w64-x86_64-zeromq
             mingw-w64-x86_64-libsodium
-
-    
             mingw-w64-x86_64-dbus
             mingw-w64-x86_64-zstd
             mingw-w64-x86_64-md4c
             mingw-w64-x86_64-graphite2
-
+            mingw-w64-x86_64-brotli
+            mingw-w64-x86_64-bzip2
+            mingw-w64-x86_64-pcre2
             zip
             unzip
 
@@ -72,11 +73,15 @@ jobs:
           which rcc
           ls -la /mingw64/bin/windeployqt* || true
 
-          echo "---- MUST exist DLLs (your popup list) ----"
-          ls -la /mingw64/bin/libdbus-1-3.dll
+          echo "---- MUST exist DLLs (common popup list) ----"
+          ls -la /mingw64/bin/libdbus-1-3.dll || true
           ls -la /mingw64/bin/libzstd.dll || true
           ls -la /mingw64/bin/libmd4c.dll || true
           ls -la /mingw64/bin/libgraphite2.dll || true
+          ls -la /mingw64/bin/libbrotlidec.dll || true
+          ls -la /mingw64/bin/libbrotlicommon.dll || true
+          ls -la /mingw64/bin/libbz2-1.dll || true
+          ls -la /mingw64/bin/libpcre2-8-0.dll || true
 
       - name: Autogen
         shell: msys2 {0}
@@ -168,7 +173,7 @@ jobs:
           rm -rf dist
           mkdir -p dist
 
-          #  always package the REAL exe
+          # always package the REAL exe
           REAL_EXE="src/qt/.libs/bitcoin-qt.exe"
           if [ ! -f "$REAL_EXE" ]; then
             REAL_EXE="src/qt/bitcoin-qt.exe"
@@ -207,12 +212,15 @@ jobs:
             cp -a /mingw64/share/qt5/plugins/styles/qwindowsvistastyle.dll dist/styles/
           fi
 
+          # ---- common runtime DLLs (best-effort) ----
           cp -a /mingw64/bin/libevent-*.dll dist/ 2>/dev/null || true
           cp -a /mingw64/bin/libdouble-conversion.dll dist/ 2>/dev/null || true
           cp -a /mingw64/bin/libicu*.dll dist/ 2>/dev/null || true
+
           cp -a /mingw64/bin/libgcc_s_seh-1.dll dist/ 2>/dev/null || true
           cp -a /mingw64/bin/libstdc++-6.dll dist/ 2>/dev/null || true
           cp -a /mingw64/bin/libwinpthread-1.dll dist/ 2>/dev/null || true
+
           cp -a /mingw64/bin/zlib1.dll dist/ 2>/dev/null || true
           cp -a /mingw64/bin/libpcre2-16-0.dll dist/ 2>/dev/null || true
           cp -a /mingw64/bin/libharfbuzz-0.dll dist/ 2>/dev/null || true
@@ -222,7 +230,13 @@ jobs:
           cp -a /mingw64/bin/libintl-8.dll dist/ 2>/dev/null || true
           cp -a /mingw64/bin/libiconv-2.dll dist/ 2>/dev/null || true
 
-          
+          # ✅ Qt/harfbuzz/freetype 하위 의존성(팝업 반복 차단 핵심)
+          cp -a /mingw64/bin/libbrotlidec.dll dist/ 2>/dev/null || true
+          cp -a /mingw64/bin/libbrotlicommon.dll dist/ 2>/dev/null || true
+          cp -a /mingw64/bin/libbz2-1.dll dist/ 2>/dev/null || true
+          cp -a /mingw64/bin/libpcre2-8-0.dll dist/ 2>/dev/null || true
+
+          # ✅ auto-copy EXE direct deps from /mingw64/bin (best-effort)
           MINGW_BIN="/mingw64/bin"
           echo "---- auto-copy dependent DLLs from $MINGW_BIN ----"
           objdump -p dist/bitcoin-qt.exe | awk -F': ' '/DLL Name/ {print $2}' | while read -r dll; do
@@ -232,7 +246,7 @@ jobs:
             fi
           done
 
-          
+          # ✅ force include: the ones you already saw missing earlier
           for f in libdbus-1-3.dll libzstd.dll libmd4c.dll libgraphite2.dll; do
             if [ -f "$MINGW_BIN/$f" ] && [ ! -f "dist/$f" ]; then
               echo "force-copy $f"
