@@ -686,12 +686,12 @@ std::string HelpMessageOpt(const std::string &option, const std::string &message
 
 fs::path GetDefaultDataDir()
 {
-    // Windows: C:\Users\Username\AppData\Roaming\Bitcoin
+    // Windows: C:\Users\Username\AppData\Roaming\BitcoinBT
     // macOS: ~/Library/Application Support/Bitcoin
     // Unix-like: ~/.bitcoin
 #ifdef WIN32
     // Windows
-    return GetSpecialFolderPath(CSIDL_APPDATA) / "Bitcoin";
+    return GetSpecialFolderPath(CSIDL_APPDATA) / "BitcoinBT";
 #else
     fs::path pathRet;
     char* pszHome = getenv("HOME");
@@ -762,12 +762,12 @@ std::variant<ChainType, std::string> ArgsManager::GetChainArg() const
     if (fRegTest) return ChainType::REGTEST;
     if (fSigNet) return ChainType::SIGNET;
     if (fTestNet) return ChainType::TESTNET;
-    return ChainType::MAIN;
+    return ChainType::BTCBT;
 }
 
 bool ArgsManager::UseDefaultSection(const std::string& arg) const
 {
-    return m_network == ChainTypeToString(ChainType::MAIN) || m_network_only_args.count(arg) == 0;
+    return m_network == ChainTypeToString(ChainType::BTCBT) || m_network_only_args.count(arg) == 0;
 }
 
 common::SettingsValue ArgsManager::GetSetting(const std::string& arg) const
