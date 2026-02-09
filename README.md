@@ -18,7 +18,7 @@ BitcoinBT is currently in a **public testing phase**.
 - Consensus-related changes are reviewed conservatively
 
 **Test Infrastructure**
-- Explorer: https://explorer.bitcoinbt.xyz
+- Explorer: https://bitcoinbt.xyz
 - Stratum (test): stratum+tcp://bitcoinbt.xyz:3333
 
 ---
