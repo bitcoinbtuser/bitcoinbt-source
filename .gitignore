@@ -161,3 +161,8 @@ src/validation - *
 
 # ignore embedded repo and local tools
 lnd/
+
+# local build artifacts
+build-win64/
+dist-win64-nogui/
+win64-stage/
