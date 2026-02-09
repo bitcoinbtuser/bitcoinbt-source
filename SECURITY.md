@@ -1,20 +1,80 @@
 # Security Policy
 
+## Project Status
+
+BitcoinBT is currently in a **public testing phase**.
+
+The network, software, and infrastructure are under active development and testing.
+This project should **not** be considered production-hardened at this stage.
+
+---
+
 ## Supported Versions
 
-See our website for versions of Bitcoin Core that are currently supported with
-security updates: https://bitcoincore.org/en/lifecycle/#schedule
+At this time, **no released version is considered security-supported**.
+
+- All releases are provided **for testing and evaluation purposes only**
+- Security issues discovered during this phase help improve the final mainnet release
+
+---
 
 ## Reporting a Vulnerability
 
-To report security issues send an email to security@bitcoincore.org (not for support).
+If you discover a potential security vulnerability, please **do not disclose it publicly**.
 
-The following keys may be used to communicate sensitive information to developers:
+### How to report
 
-| Name | Fingerprint |
-|------|-------------|
-| Pieter Wuille | 133E AC17 9436 F14A 5CF1  B794 860F EB80 4E66 9320 |
-| Michael Ford | E777 299F C265 DD04 7930  70EB 944D 35F9 AC3D B76A |
-| Andrew Chow | 1528 1230 0785 C964 44D3  334D 1756 5732 E08E 5E41 |
+- Do **NOT** open a public GitHub Issue for security-related bugs
+- Contact the maintainers privately via:
 
-You can import a key by running the following command with that individual’s fingerprint: `gpg --keyserver hkps://keys.openpgp.org --recv-keys "<fingerprint>"` Ensure that you put quotes around fingerprints containing spaces.
+📧 **info@bitcoinbt.xyz**
+
+Please include:
+- A clear description of the issue
+- Steps to reproduce (if possible)
+- The potential impact (e.g. crash, fund loss, consensus risk)
+
+---
+
+## Scope of Security Issues
+
+Examples of in-scope issues include:
+- Remote crashes
+- Denial-of-service vectors
+- Consensus inconsistencies
+- Wallet fund safety issues
+- RPC or network abuse leading to security risks
+
+Out-of-scope examples include:
+- Testnet instability
+- Expected behavior during testing
+- Minor UI bugs with no security impact
+
+---
+
+## Disclosure Policy
+
+- All valid security reports will be reviewed privately
+- Fixes may be released without prior public disclosure
+- Public acknowledgement may occur **after mitigation**, at the maintainers’ discretion
+
+---
+
+## Bug Bounty
+
+There is **no bug bounty program** at this time.
+
+However, responsible disclosure during the testing phase is highly appreciated and may be acknowledged in future documentation.
+
+---
+
+## Legal Notice
+
+By reporting a security issue, you agree:
+- Not to exploit the vulnerability
+- Not to disclose details before a fix is available
+- To act in good faith to help improve the network
+
+---
+
+Thank you for helping keep BitcoinBT secure.
