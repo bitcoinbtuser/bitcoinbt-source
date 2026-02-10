@@ -33,90 +33,101 @@ Testers are encouraged to participate in the following areas:
 
 ### Build from source (recommended)
 
-```bash
-./autogen.sh
-./configure
-make
-Run the node:
+    ./autogen.sh
+    ./configure
+    make
 
-./src/bitcoind -chain=btcbt
-Allow some time for initial sync.
+### Run the node
 
-Mining & Stratum Testing
+    ./src/bitcoind -chain=btcbt
+
+Allow some time for the initial sync to complete.
+
+---
+
+## Mining & Stratum Testing
+
 A public test stratum is available.
 
-Stratum URL:
+- **Stratum URL**
 
-stratum+tcp://bitcoinbt.xyz:3333
-Algorithm: sha256d
+    stratum+tcp://bitcoinbt.xyz:3333
 
-Example (cpuminer):
+- **Algorithm**: `sha256d`
 
-./cpuminer -a sha256d -o stratum+tcp://bitcoinbt.xyz:3333 -u <YOUR_BTCBT_ADDRESS> -p x
+### Example (cpuminer)
+
+    ./cpuminer -a sha256d \
+      -o stratum+tcp://bitcoinbt.xyz:3333 \
+      -u <YOUR_BTCBT_ADDRESS> \
+      -p x
+
 ASIC miners using standard SHA-256d stratum protocols are also supported.
 
-Wallet Testing
-Testers are encouraged to:
+---
 
-Create a new wallet
+## Wallet Testing
 
-Generate receiving addresses
+Testers are encouraged to perform the following actions:
 
-Receive mining rewards
-
-Send basic transactions
-
-Observe transaction confirmations
+- Create a new wallet
+- Generate receiving addresses
+- Receive mining rewards
+- Send basic transactions
+- Observe transaction confirmations
 
 Wallet behavior should be consistent with Bitcoin Core–based systems.
 
-Explorer & Monitoring
+---
+
+## Explorer & Monitoring
+
 A public explorer is available for verification:
 
-Explorer: https://explorer.bitcoinbt.xyz
+- Explorer: https://explorer.bitcoinbt.xyz
 
 Testers may use the explorer to:
 
-Verify block production
+- Verify block production
+- Track transactions
+- Confirm mining rewards
 
-Track transactions
+---
 
-Confirm mining rewards
+## Reporting Issues
 
-Reporting Issues
-All bugs and issues should be reported via GitHub Issues.
+All bugs and issues should be reported via **GitHub Issues**.
 
 When reporting an issue, please include:
 
-Node version / commit hash
+- Node version or commit hash
+- Operating system and environment
+- Steps to reproduce the issue
+- Logs or screenshots (if applicable)
 
-Operating system and environment
+For security-related issues, **do NOT open a public issue**.
+Refer to `SECURITY.md`.
 
-Steps to reproduce the issue
+---
 
-Logs or screenshots if applicable
+## What Not to Test
 
-For security-related issues, do NOT open a public issue.
-Refer to SECURITY.md.
-
-What Not to Test
 During the public testing phase:
 
-Do not assume network permanence
+- Do not assume network permanence
+- Do not treat test funds as having real-world value
+- Breaking changes may occur without notice
 
-Do not treat test funds as having real-world value
+---
 
-Breaking changes may occur without notice
+## Feedback
 
-Feedback
 Constructive feedback from testers is highly appreciated.
 
 Your participation directly contributes to:
 
-Network stability
-
-Consensus safety
-
-Long-term sustainability of BitcoinBT
+- Network stability
+- Consensus safety
+- Long-term sustainability of BitcoinBT
 
 Thank you for testing BitcoinBT.
