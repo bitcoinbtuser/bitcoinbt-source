@@ -51,7 +51,19 @@ LogPrintf("POWDBG[REQ]: h=%d fork_h=%d path=POST_FORK\n", next_height, fork_h);
         }
         return ret;
     }
- 
+
+     // (테스트 리셋용 안전장치) 포크 직후 N블록은 난이도 고정
+    // 목적: ASERT 초기 구간에서 0 반환/compact 깨짐으로 폭주하는 걸 차단
+    if (next_height <= fork_h + 50) {
+        unsigned int ret = UintToArith256(params.powLimit).GetCompact();
+        if (ret == 0) {
+            ret = 0x1d00ffff; // 안전 fallback
+            LogPrintf("POWDBG[CLAMP]: post_fork warmup powLimit compact=0 -> fallback=%08x\n", ret);
+        }
+        LogPrintf("POWDBG[WARMUP]: h=%d <= fork_h+50 -> powLimit=%08x\n", next_height, ret);
+        return ret;
+    }
+
     // 포크 후: ASERT 앵커 준비 확인
     const bool asert_ready =
         (params.btcbt_asert_anchor_height >= 0) &&
@@ -65,14 +77,18 @@ LogPrintf("POWDBG[REQ]: h=%d fork_h=%d path=POST_FORK\n", next_height, fork_h);
             LogPrintf("POWDBG[CLAMP]: legacy fallback returned 0 at h=%d -> powLimit=%08x\n", next_height, ret);
         }
         return ret;
-    }
-    // 포크 후 + 앵커 준비 완료 → ASERT
-    unsigned int ret = GetNextWorkRequired_ASERT(pindexLast, pblock, params);
-    if (ret == 0) {
-        ret = UintToArith256(params.powLimit).GetCompact();
-        LogPrintf("POWDBG[CLAMP]: ASERT returned 0 at h=%d -> powLimit=%08x\n", next_height, ret);
-    }
-    return ret;
+     }
+     // 포크 후 + 앵커 준비 완료 → ASERT
+     unsigned int ret = GetNextWorkRequired_ASERT(pindexLast, pblock, params);
+     if (ret == 0) {
+         // 0 타깃은 비정상. powLimit(최저난이도)로 되돌리면 영원히 쉬워짐.
+         // 최소 타깃(가장 어려움)으로 보정해서 난이도 폭주를 차단
+        arith_uint256 min_target = arith_uint256(1);
+         ret = min_target.GetCompact();
+         LogPrintf("POWDBG[CLAMP]: ASERT returned 0 at h=%d -> min_target=%08x\n", next_height, ret);
+     }
+     return ret;
+
 }
 // ============================================================================
 // (비트코인 레거시) 다음 작업 난이도 계산
@@ -199,15 +215,17 @@ if (T <= 0) {
     const int64_t height_diff = pindexLast->nHeight      - anchor->nHeight;
     const int64_t ideal_time  = height_diff * T;
     const int64_t offset      = time_diff - ideal_time;
+  
+      // 간략 버전의 지수 근사 (정식 ASERT로 교체 권장)
+      arith_uint256 target = target_ref;
+  
+      // ASERT half-life(초). (예: 2일 = 172800)
+      constexpr int64_t HALF_LIFE = 2 * 24 * 60 * 60;
+      const int64_t exponent = (offset * 65536) / HALF_LIFE;
+  
+      // 2^floor(exponent/65536)
+      if (exponent >= 0) {
 
-    // 간략 버전의 지수 근사 (정식 ASERT로 교체 권장)
-    arith_uint256 target = target_ref;
-
-    // exponent 고정소수점(16.16) 근사
-const int64_t exponent = ((offset * 65536) / T);
-
-    // 2^floor(exponent/65536)
-    if (exponent >= 0) {
         target <<= (exponent / 65536);
     } else {
         target >>= ((-exponent) / 65536);

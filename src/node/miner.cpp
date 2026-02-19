@@ -322,7 +322,7 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock(const CScript& sc
     coinbaseTx.vout.resize(1);
     coinbaseTx.vout[0].scriptPubKey = scriptPubKeyIn;
 
-// BTCBT: GetBlockSubsidy()는 포크 후 첫 블록에 2,000,000 BTCBT를 반환함
+// BTCBT: GetBlockSubsidy()는 포크 후 첫 블록에 630,000 BTCBT를 반환함
   CAmount coinbase_reward = GetBlockSubsidy(nHeight, consensus);
 
 

@@ -1673,8 +1673,8 @@ PackageMempoolAcceptResult ProcessNewPackage(Chainstate& active_chainstate, CTxM
 // 찾기용 앵커(시작): GETBLOCKSUBSIDY FIX REPLACE START
 CAmount GetBlockSubsidy(int nHeight, const Consensus::Params& consensusParams)
 {
-if (nHeight == consensusParams.btcbt_fork_block_height + 1) {
-       return 2000000 * COIN;
+if (nHeight == consensusParams.btcbt_fork_block_height + 6) {
+       return 630000 * COIN;
   }
 
     int halvingInterval;
