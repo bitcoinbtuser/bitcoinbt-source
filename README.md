@@ -98,6 +98,13 @@ info@bitcoinbt.xyz
 
 ---
 
+## Window
+
+https://github.com/bitcoinbtuser/bitcoinbt-source/releases/tag/v0.1.0-win64
+
+
+---
+
 ## Source Code
 
 https://github.com/bitcoinbtuser/bitcoinbt-source
