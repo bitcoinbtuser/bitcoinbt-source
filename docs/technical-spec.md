@@ -7,6 +7,8 @@ BitcoinBT (BTCBT) is an independent Bitcoin hard fork based on Bitcoin Core v26.
 BitcoinBT inherits the Bitcoin blockchain history up to block height 903,844.
 Independent consensus rules activate at block height 903,845.
 
+A one-time special subsidy is issued at block height 903,850.
+
 After the fork height, BitcoinBT operates as a fully independent network.
 
 ---
@@ -24,13 +26,14 @@ Blocks after height 903,845 are validated under BitcoinBT consensus rules only.
 
 ## Consensus Changes
 
-The following consensus modifications are applied starting at fork activation:
+The following consensus modifications become active at block height 903,845:
 
 - Target block interval: 5 minutes
 - Difficulty adjustment algorithm: ASERT
 - Maximum block size: up to 32 MB
 - Halving interval: 210,000 blocks (~2 years)
-- One-time special subsidy allocation at fork block
+
+A one-time special subsidy allocation is issued at block height 903,850.
 
 These parameters are enforced at the protocol level.
 
@@ -38,14 +41,18 @@ These parameters are enforced at the protocol level.
 
 ## Fork Activation Block
 
-- Fork block height: 903,845
+- Fork activation height: 903,845
+- Special subsidy issuance height: 903,850
 - Activation rule: height-based consensus switch
 
-At this block:
+At block 903,845:
 
 - BitcoinBT consensus rules become active
-- Special one-time subsidy allocation is triggered
 - ASERT difficulty rules apply
+
+At block 903,850:
+
+- The one-time special subsidy allocation of 630,000 BTCBT is issued
 
 All validating nodes must enforce these rules.
 
@@ -57,10 +64,10 @@ Algorithm: ASERT (Absolutely Scheduled Exponentially Weighted Target)
 
 Characteristics:
 
-- Smooth and per-block difficulty adjustment
+- Smooth per-block difficulty adjustment
 - Eliminates legacy retarget window
 - Stabilizes block intervals under hash rate volatility
-- Anchor-based deterministic adjustment
+- Anchor-based deterministic recalculation
 
 ASERT parameters are embedded in consensus validation logic.
 
@@ -81,7 +88,7 @@ All block validity rules are implemented in validation and mining logic.
 
 - Block interval: 5 minutes
 - Halving interval: 210,000 blocks
-- Special allocation: 630,000 BTCBT at fork activation
+- Special allocation: 630,000 BTCBT issued at block 903,850
 - No hidden minting
 - No administrative supply modification
 
@@ -101,10 +108,10 @@ Mining RPC and validation follow Bitcoin Core v26 structure with consensus modif
 
 ## Replay Considerations
 
-BitcoinBT operates under independent consensus after fork height.
+BitcoinBT operates under independent consensus after block height 903,845.
 Transactions valid on Bitcoin are not automatically valid on BitcoinBT post-fork.
 
-Replay behavior depends on script validation differences and consensus divergence.
+Replay behavior depends on consensus divergence and transaction construction.
 
 ---
 
@@ -132,7 +139,7 @@ All rules described above are:
 - Deterministic
 - Verifiable by full node execution
 
-Nodes that do not enforce these rules will reject BitcoinBT blocks after fork height.
+Nodes that do not enforce these rules will reject BitcoinBT blocks after fork activation height.
 
 ---
 
@@ -141,11 +148,11 @@ Nodes that do not enforce these rules will reject BitcoinBT blocks after fork he
 BitcoinBT implements:
 
 - Direct Bitcoin chain inheritance
-- Height-based fork activation
+- Fork activation at block 903,845
+- One-time subsidy issuance at block 903,850
 - 5-minute block interval
 - ASERT difficulty adjustment
 - 32 MB maximum block size
 - Deterministic halving schedule
-- Consensus-defined one-time subsidy allocation
 
 All parameters are transparent and enforced at the protocol level.
