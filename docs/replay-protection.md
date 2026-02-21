@@ -9,9 +9,11 @@ Prior to block 903,845, BitcoinBT shares identical transaction history
 with Bitcoin.
 
 After block 903,845, consensus rules diverge permanently.
+A one-time special subsidy is issued at block height 903,850,
+further separating chain state.
 
-Replay behavior depends on post-fork rule divergence and
-transaction construction.
+Replay behavior depends on post-fork rule divergence
+and transaction construction.
 
 ---
 
@@ -31,11 +33,15 @@ Beginning at block 903,845:
 
 - Block interval changes (5 minutes)
 - Difficulty adjustment switches to ASERT
-- Block subsidy rules change
+- Block subsidy rules diverge
 - Maximum block size rule changes
-- One-time special subsidy allocation occurs
 
-Due to consensus changes, blocks on each chain are validated differently.
+At block 903,850:
+
+- A one-time special subsidy of 630,000 BTCBT is issued
+
+Due to these consensus changes,
+blocks on each chain are validated differently.
 
 ---
 
@@ -51,12 +57,15 @@ Replay risk depends on:
 - Transaction format consistency
 - Network policy enforcement
 - Chain height differences
+- Divergence in UTXO state after special issuance
 
-Because BitcoinBT retains Bitcoin's base script system,
-transaction structure remains compatible in principle.
+BitcoinBT retains Bitcoin's base script system,
+so transaction structure remains compatible in principle.
 
-However, diverging difficulty targets and block validation rules
-reduce practical replay symmetry over time.
+However, independent difficulty targets,
+subsidy divergence at 903,850,
+and ongoing independent block production
+reduce replay symmetry over time.
 
 ---
 
@@ -68,8 +77,7 @@ BitcoinBT does not modify transaction serialization format.
 
 BitcoinBT does not add network-level replay protection opcodes.
 
-Replay behavior is governed by standard consensus divergence
-after fork activation.
+Replay isolation relies on structural consensus divergence.
 
 ---
 
@@ -77,26 +85,27 @@ after fork activation.
 
 Participants may mitigate replay risk by:
 
-- Waiting for sufficient post-fork confirmations
-- Using chain-specific dust separation techniques
-- Splitting UTXOs across networks
+- Waiting for sufficient confirmations after block 903,845
+- Ensuring transactions occur after block 903,850 divergence
+- Splitting UTXOs on each network
 - Broadcasting transactions only after chain separation stabilizes
 
 Exchanges should implement confirmation policies
-appropriate for network hash rate and observed reorganization depth.
+based on observed hash rate and reorganization depth.
 
 ---
 
 ## Chain Separation Factors
 
-Chain separation increases over time due to:
+Chain separation increases due to:
 
-- Independent block production
-- Independent difficulty adjustments
-- Independent subsidy issuance
-- Divergent block timestamps
+- Independent block production after 903,845
+- Independent ASERT difficulty recalculation
+- Monetary divergence at block 903,850
+- Divergent timestamps and chain work accumulation
 
-As chain state diverges, transaction replay feasibility decreases.
+As chain state diverges,
+cross-chain replay feasibility decreases.
 
 ---
 
@@ -104,28 +113,27 @@ As chain state diverges, transaction replay feasibility decreases.
 
 Exchanges integrating BitcoinBT should:
 
-- Require adequate confirmation depth
-- Monitor network hash rate stability
-- Verify replay isolation before enabling deposits/withdrawals
-- Conduct independent node validation
+- Apply conservative confirmation requirements
+- Monitor hash rate stability
+- Verify replay isolation during testing
+- Operate independent BitcoinBT full nodes
 
-Replay behavior should be evaluated operationally
-during integration testing.
+Replay behavior must be evaluated before enabling deposits or withdrawals.
 
 ---
 
 ## Full Node Enforcement
 
-Nodes validate:
+BitcoinBT nodes validate:
 
 - Block height
-- Block difficulty
+- ASERT-derived difficulty
 - Block subsidy correctness
-- Block size rules
-- ASERT-derived targets
+- Special subsidy correctness at 903,850
+- Block size compliance
 
-Nodes that do not enforce BitcoinBT consensus rules
-will reject post-fork blocks.
+Nodes enforcing Bitcoin rules will reject BitcoinBT blocks after 903,845.
+BitcoinBT nodes will reject Bitcoin blocks beyond fork height.
 
 ---
 
@@ -133,13 +141,12 @@ will reject post-fork blocks.
 
 Replay protection in BitcoinBT relies on:
 
-- Height-based consensus divergence
-- Difficulty algorithm separation
-- Subsidy rule divergence
+- Height-based consensus divergence at 903,845
+- Special subsidy divergence at 903,850
+- Independent difficulty recalculation
 - Independent block production
 
 BitcoinBT and Bitcoin operate as fully independent networks
-after block height 903,845.
+after fork activation.
 
-Replay behavior must be evaluated based on transaction timing
-and chain state divergence.
+Replay feasibility decreases as chain state diverges.
