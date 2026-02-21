@@ -22,6 +22,17 @@ This is expected during active testing.
 
 ---
 
+## Network Definition
+
+- Inherits Bitcoin blockchain history up to block 903,844
+- Fork activation height: 903,845
+- Independent consensus rules apply after the fork
+- Independent mining required (no automatic BTC holder allocation)
+
+BitcoinBT does not modify or affect the Bitcoin (BTC) network.
+
+---
+
 ## Monetary Policy
 
 BitcoinBT follows a modified issuance model after the fork.
@@ -38,17 +49,6 @@ in the public source code.
 
 There is no hidden premine.
 All monetary parameters are verifiable in this repository.
-
----
-
-## Network Definition
-
-- Inherits Bitcoin blockchain history up to block 903,844
-- Fork activation height: 903,845
-- Independent consensus rules apply after the fork
-- Independent mining required (no automatic BTC holder allocation)
-
-BitcoinBT does not modify or affect the Bitcoin (BTC) network.
 
 ---
 
