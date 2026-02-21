@@ -8,6 +8,8 @@ All monetary parameters are defined at the protocol level and are publicly audit
 BitcoinBT inherits the Bitcoin blockchain history up to block height 903,844.
 At block height 903,845, independent consensus rules become active.
 
+A one-time special subsidy is issued later at block height 903,850.
+
 ---
 
 ## Fork Activation
@@ -15,8 +17,9 @@ At block height 903,845, independent consensus rules become active.
 Inherited chain: Bitcoin (BTC)
 Last shared block: 903,844
 Fork activation block: 903,845
+Special subsidy issuance block: 903,850
 
-All monetary changes take effect starting at block 903,845.
+All consensus rule changes take effect starting at block 903,845.
 
 ---
 
@@ -26,7 +29,7 @@ Target block time: 5 minutes
 Consensus-enforced
 Independent difficulty adjustment using ASERT
 
-With a 5-minute block interval, the annual block production differs from Bitcoin (10-minute interval).
+With a 5-minute block interval, annual block production differs from Bitcoin (10-minute interval).
 
 ---
 
@@ -43,17 +46,18 @@ The halving logic is implemented in the block subsidy calculation within the nod
 ## Special One-Time Subsidy Allocation
 
 Amount: 630,000 BTCBT
-Activation block: 903,845
+Issuance block: 903,850
 Type: One-time consensus-defined issuance
 
 This allocation is:
 
 Defined directly in the consensus rules
-Triggered only at fork activation height
+Triggered only at block height 903,850
 Transparent and verifiable in the public repository
 Not hidden in any off-chain mechanism
 
-The special allocation is implemented at the protocol level and enforced by all validating nodes.
+The special allocation is implemented at the protocol level
+and enforced by all validating nodes.
 
 ---
 
@@ -88,7 +92,7 @@ All monetary parameters can be verified by:
 Reviewing consensus rules in source code
 Running a full node
 Inspecting block rewards through the public explorer
-Verifying block subsidy logic at fork height
+Verifying block subsidy logic at block 903,850
 
 This ensures deterministic and reproducible issuance.
 
@@ -113,6 +117,7 @@ BitcoinBT monetary issuance is:
 Consensus-defined
 Deterministic
 Publicly auditable
-Activated at a clearly defined fork height
+Height-activated (fork at 903,845, special issuance at 903,850)
 
-All parameters are implemented in open-source code and are enforceable by network validation rules.
+All parameters are implemented in open-source code
+and are enforceable by network validation rules.
