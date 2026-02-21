@@ -5,21 +5,24 @@
 BitcoinBT (BTCBT) inherits the core security architecture of Bitcoin,
 including Proof-of-Work consensus and SHA-256 mining.
 
-After block height 903,845, BitcoinBT operates under independent
-consensus rules while maintaining PoW-based chain security.
+The network shares chain history through block 903,844.
+At block height 903,845, independent consensus rules activate.
+A one-time special subsidy is issued at block height 903,850.
+
+After block 903,845, BitcoinBT operates as an independent PoW network.
 
 ---
 
 ## Proof-of-Work
 
 - Algorithm: SHA-256
-- Mining model: competitive PoW
+- Mining model: competitive Proof-of-Work
 - Block validity determined by hash target compliance
 
-BitcoinBT does not modify the core Proof-of-Work structure.
-Block validity requires meeting the network-defined difficulty target.
+BitcoinBT does not modify the core PoW hashing function.
+Block validity requires meeting the network-defined ASERT-adjusted difficulty target.
 
-Security therefore depends on accumulated hash power.
+Network security depends on accumulated hash power.
 
 ---
 
@@ -29,66 +32,67 @@ BitcoinBT assumes:
 
 - Independent hash power participation
 - Economic incentives for miners
-- Market-driven mining competition
+- Market-driven competition
 
-As with Bitcoin, network security increases proportionally
-with total active hash rate.
+Security increases proportionally with total active hash rate,
+similar to Bitcoin.
 
 ---
 
 ## 51% Attack Considerations
 
-Like all PoW-based networks, BitcoinBT is subject to
-majority hash power attack assumptions.
+Like all PoW networks, BitcoinBT is subject to majority hash power assumptions.
 
-If an attacker controls >50% of total network hash rate,
+If an entity controls more than 50% of network hash rate,
 they could:
 
 - Reorganize recent blocks
 - Delay confirmation finality
 - Attempt double-spend attacks
 
-Mitigations include:
+Mitigation factors include:
 
 - Distributed mining participation
-- Public block monitoring
 - Exchange confirmation policies
-- Transparent hash rate reporting
+- Public monitoring of hash rate
+- Economic incentives aligned with honest mining
 
-Security strengthens as network hash power grows.
+Security strengthens as hash rate grows.
 
 ---
 
 ## ASERT Difficulty Adjustment
 
-BitcoinBT replaces legacy difficulty retargeting
-with ASERT (Absolutely Scheduled Exponentially Weighted Target).
+BitcoinBT replaces legacy retarget windows with:
 
-Security characteristics of ASERT:
+ASERT (Absolutely Scheduled Exponentially Weighted Target)
+
+Security characteristics:
 
 - Per-block difficulty adjustment
-- Rapid response to hash rate volatility
-- Reduced risk of timestamp manipulation compared to window-based retargets
-- Predictable and anchor-based recalculation
+- Rapid response to sudden hash rate changes
+- Deterministic anchor-based recalculation
+- Reduced risk of prolonged stagnation
 
-ASERT prevents long stagnation periods caused by sudden hash rate drops.
+ASERT improves stability under volatile mining conditions.
 
 ---
 
 ## 5-Minute Block Interval Impact
 
-BitcoinBT reduces block interval from 10 minutes to 5 minutes.
+Block interval is reduced to 5 minutes.
 
 Security implications:
 
-- Faster confirmation times
-- More frequent difficulty recalculation events
-- Slightly increased orphan probability under low propagation efficiency
+- Faster average confirmation times
+- More frequent block creation
+- Slightly increased orphan probability in low bandwidth environments
 
 Mitigation:
 
-- Propagation efficiency improvements
-- Modern node networking stack (Bitcoin Core v26 base)
+- Modern networking stack (Bitcoin Core v26 base)
+- Standard relay policies
+- Efficient block propagation
 
 ---
 
@@ -96,61 +100,50 @@ Mitigation:
 
 Maximum block size: up to 32 MB
 
-Security implications:
+Security considerations:
 
-- Increased validation workload
-- Higher bandwidth requirement
-- Larger block propagation payload
+- Increased validation cost
+- Higher bandwidth requirements
+- Larger propagation payload
 
-Mitigations:
+Mitigation:
 
-- Modern hardware baseline assumption
-- Network bandwidth planning
 - Standard mempool policy enforcement
-
-Block validation rules remain consensus-enforced.
-
----
-
-## Consensus Enforcement
-
-Security is guaranteed by:
-
-- Deterministic validation rules
-- Open-source client enforcement
-- Full node verification
-- Rejection of invalid blocks
-
-No centralized authority can override consensus rules.
+- Hardware assumptions aligned with modern infrastructure
+- Full node validation remains mandatory
 
 ---
 
 ## Monetary Integrity
 
-BitcoinBT ensures:
+BitcoinBT enforces:
 
-- No administrative inflation controls
-- No discretionary minting
-- Height-based activation logic
-- Consensus-defined special issuance
+- Height-based fork activation at 903,845
+- One-time special issuance at 903,850
+- Deterministic block subsidy schedule
+- 210,000 block halving interval
+- No administrative minting authority
 
-All supply rules are enforced during block validation.
+All issuance rules are consensus-defined and validated by nodes.
 
 ---
 
 ## Replay and Chain Isolation
 
-After fork activation:
+After fork activation (903,845):
 
-- Difficulty rules diverge
-- Block targets diverge
-- Subsidy logic diverges
-- Block validation logic diverges
+- Difficulty adjustment diverges
+- Block timing diverges
+- Monetary rules diverge
+- Block size rules diverge
 
-Nodes enforcing Bitcoin rules will reject BitcoinBT blocks,
-and vice versa.
+At block 903,850, the special subsidy further differentiates
+BitcoinBT chain state from Bitcoin.
 
-This ensures structural separation of chains.
+Nodes enforcing Bitcoin rules reject BitcoinBT blocks after 903,845.
+Nodes enforcing BitcoinBT rules reject Bitcoin blocks beyond that height.
+
+This ensures permanent structural separation.
 
 ---
 
@@ -158,25 +151,25 @@ This ensures structural separation of chains.
 
 Security relies on:
 
-- Open-source reviewability
-- Deterministic builds
-- Community verification
-- Transparent repository
+- Open-source validation logic
+- Deterministic rule enforcement
+- Publicly auditable consensus parameters
+- Transparent repository maintenance
 
-Code changes affecting consensus are publicly visible.
+Consensus-critical logic is fully visible in source code.
 
 ---
 
 ## Operational Security Considerations
 
-Network participants should consider:
+Participants should:
 
-- Standard exchange confirmation requirements
-- Monitoring reorganization depth
-- Observing network hash rate stability
-- Maintaining up-to-date node versions
+- Apply appropriate confirmation policies
+- Monitor hash rate stability
+- Observe reorganization depth
+- Maintain up-to-date node software
 
-Security posture strengthens with distributed participation.
+Network robustness increases with distributed participation.
 
 ---
 
@@ -185,9 +178,9 @@ Security posture strengthens with distributed participation.
 BitcoinBT security is based on:
 
 - SHA-256 Proof-of-Work
-- Deterministic consensus rules
-- ASERT difficulty stability
-- Independent chain separation
-- Public auditability
+- Independent consensus activation at 903,845
+- One-time subsidy issuance at 903,850
+- ASERT per-block difficulty adjustment
+- Deterministic and publicly auditable rules
 
-Network security increases as hash rate and participation grow.
+Security strengthens proportionally with network participation and hash rate.
