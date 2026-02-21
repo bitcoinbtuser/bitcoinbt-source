@@ -10,6 +10,8 @@ from block 0 (Genesis) through block height 903,844.
 At block height 903,845, BitcoinBT activates independent
 consensus rules and diverges permanently from the Bitcoin chain.
 
+A one-time special subsidy is issued at block height 903,850.
+
 ---
 
 ## Shared History
@@ -26,6 +28,7 @@ Up to block 903,844, BitcoinBT follows unmodified Bitcoin Core v26 validation lo
 ## Divergence Point
 
 - Fork activation height: 903,845
+- Special subsidy issuance height: 903,850
 - Activation method: block height switch
 - Rule enforcement: consensus-level modification
 
@@ -34,10 +37,15 @@ Starting at height 903,845:
 - New block interval: 5 minutes
 - ASERT difficulty adjustment replaces legacy retarget
 - Modified block subsidy logic applies
-- Special one-time issuance (630,000 BTCBT) is triggered
 - Modified maximum block size rules apply
 
-Nodes validating Bitcoin rules will reject BTCBT blocks after this height.
+At height 903,850:
+
+- A one-time issuance of 630,000 BTCBT is executed
+  through consensus-defined block subsidy logic
+
+Nodes validating Bitcoin rules will reject BTCBT blocks
+after block height 903,845.
 
 ---
 
@@ -52,7 +60,7 @@ BitcoinBT modifies:
 
 Because these are consensus-critical parameters,
 Bitcoin and BitcoinBT chains are permanently incompatible
-after the fork height.
+after block 903,845.
 
 There is no soft-fork compatibility mode.
 
@@ -63,16 +71,21 @@ There is no soft-fork compatibility mode.
 BitcoinBT and Bitcoin share the same transaction history
 only up to block 903,844.
 
-After the fork:
+After block 903,845:
 
 - Consensus rules diverge
 - Difficulty targets diverge
 - Block validation rules diverge
 
+After block 903,850:
+
+- Monetary state diverges further due to special issuance
+
 Due to consensus divergence,
 post-fork blocks are not mutually valid across networks.
 
-Replay behavior depends on transaction design and script execution rules.
+Replay behavior depends on transaction construction
+and chain state divergence.
 
 ---
 
@@ -80,7 +93,7 @@ Replay behavior depends on transaction design and script execution rules.
 
 - Independent network
 - Independent block production
-- Independent difficulty retarget
+- Independent difficulty adjustment
 - Independent block validation
 
 BitcoinBT does not modify, interrupt,
@@ -97,10 +110,10 @@ All fork behavior is:
 - Automatically activated at height 903,845
 
 Nodes running unmodified Bitcoin software
-will reject BitcoinBT blocks after fork height.
+will reject BitcoinBT blocks after block 903,845.
 
 Nodes running BitcoinBT software
-will reject Bitcoin blocks after fork height.
+will reject Bitcoin blocks beyond fork height.
 
 ---
 
@@ -110,8 +123,8 @@ Fork-related logic is implemented in:
 
 - Chain parameter configuration
 - Consensus rule definitions
-- Difficulty adjustment logic
-- Block subsidy calculation
+- Difficulty adjustment logic (ASERT)
+- Block subsidy calculation (including special issuance at 903,850)
 - Validation and block acceptance logic
 
 All logic is publicly auditable in the source repository.
@@ -122,6 +135,8 @@ All logic is publicly auditable in the source repository.
 
 BitcoinBT represents a direct chain inheritance followed by
 a deterministic consensus-level divergence at block 903,845.
+
+Special monetary divergence occurs at block 903,850.
 
 The fork is:
 
