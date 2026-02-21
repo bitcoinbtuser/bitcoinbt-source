@@ -22,6 +22,25 @@ This is expected during active testing.
 
 ---
 
+Monetary Policy
+
+BitcoinBT follows a modified issuance model after the fork.
+
+Block interval: 5 minutes
+
+Halving interval: 210,000 blocks (~2 years)
+
+One-time special subsidy allocation: 630,000 BTCBT
+
+The special allocation is defined in the consensus rules
+at fork activation height and is transparently implemented
+in the public source code.
+
+There is no hidden premine.
+All monetary parameters are verifiable in this repository.
+
+---
+
 ## Network Definition
 
 - Inherits Bitcoin blockchain history up to block 903,844
@@ -98,7 +117,7 @@ info@bitcoinbt.xyz
 
 ---
 
-## Window
+## Windows Release
 
 https://github.com/bitcoinbtuser/bitcoinbt-source/releases/tag/v0.1.0-win64
 
