@@ -22,7 +22,7 @@ This is expected during active testing.
 
 ---
 
-Monetary Policy
+## Monetary Policy
 
 BitcoinBT follows a modified issuance model after the fork.
 
