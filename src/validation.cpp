@@ -91,7 +91,6 @@
 #include <string>
 #include <tuple>
 #include <utility>
-
 #include <serialize.h>
 
 // === BTCBT: env fallback helpers (when util/system.h is missing) ===
@@ -1673,38 +1672,59 @@ PackageMempoolAcceptResult ProcessNewPackage(Chainstate& active_chainstate, CTxM
 // 찾기용 앵커(시작): GETBLOCKSUBSIDY FIX REPLACE START
 CAmount GetBlockSubsidy(int nHeight, const Consensus::Params& consensusParams)
 {
-if (nHeight == consensusParams.btcbt_fork_block_height + 6) {
-       return 630000 * COIN;
-  }
-
     int halvingInterval;
     int halvings;
 
-    // ✅ 안전 가드: interval이 0/음수면 기본값(consensusParams.nSubsidyHalvingInterval)로 대체
-    //    (regtest 초기화 누락 등으로 0이 들어와도 FPE 방지)
+    // fork 이후엔 btcbt_halving_interval 사용 (0/음수 방어 포함)
     if (nHeight >= consensusParams.btcbt_fork_block_height + 1) {
         int interval = consensusParams.btcbt_halving_interval;
         if (interval <= 0) interval = consensusParams.nSubsidyHalvingInterval;  // fallback
+        if (interval <= 0) interval = 210000; // 최종 안전값
+
         halvingInterval = interval;
-        int forkStart = consensusParams.btcbt_fork_block_height + 1;
+
+        const int forkStart = consensusParams.btcbt_fork_block_height + 1;
         int span = nHeight - forkStart;
         if (span < 0) span = 0;
-        // interval이 혹시라도 0이면(위에서 가드했지만) 마지막 방어
-        halvings = (halvingInterval > 0) ? (span / halvingInterval) : 0;
+
+        halvings = span / halvingInterval;
     } else {
         halvingInterval = consensusParams.nSubsidyHalvingInterval;
         if (halvingInterval <= 0) halvingInterval = 210000; // 최종 안전값
         halvings = nHeight / halvingInterval;
     }
 
-    if (halvings >= 64) {
-        return 0;
+    if (halvings >= 64) return 0;
+
+    // 기본 보상(비트코인식)
+    CAmount subsidy = 50 * COIN >> halvings;
+
+    // ===== BTCBT: special subsidy + offset (총량 21,000,000 유지) =====
+    const bool post_fork = (nHeight >= consensusParams.btcbt_fork_block_height + 1);
+    if (post_fork) {
+        const int special_h = consensusParams.btcbt_fork_block_height + 6;
+        const CAmount special_amt = 630000 * COIN;
+
+        const int offset_span = 630000;      // 630,000 blocks
+        const CAmount offset_per = 1 * COIN; // 1 BTCBT per block
+
+        // 1) 특별보상은 추가
+        if (nHeight == special_h) {
+            subsidy += special_amt;
+        }
+
+        // 2) 상쇄: special_h+1 .. special_h+offset_span(포함) 동안 -1 BTCBT
+        const int start = special_h + 1;
+        const int end   = special_h + offset_span; // inclusive
+        if (nHeight >= start && nHeight <= end) {
+            if (subsidy >= offset_per) subsidy -= offset_per;
+            else subsidy = 0;
+        }
     }
 
-    return 50 * COIN >> halvings;
+    return subsidy;
 }
 // 찾기용 앵커(끝): GETBLOCKSUBSIDY FIX REPLACE END
-
 CoinsViews::CoinsViews(DBParams db_params, CoinsViewOptions options)
     : m_dbview{std::move(db_params), std::move(options)},
       m_catcherview(&m_dbview) {}
@@ -2446,7 +2466,7 @@ bool Chainstate::ConnectBlock(const CBlock& block, BlockValidationState& state, 
       const auto& cons = params.GetConsensus();
       // BTCBT 규칙이 진짜로 세팅된 체인에서만(예: fork 높이가 정상치일 때만) 발동
       const bool btcbt_enabled = (cons.btcbt_fork_block_height > 100000);
-      const bool post_fork = btcbt_enabled && (pindex->nHeight >= cons.btcbt_fork_block_height);
+      const bool post_fork = btcbt_enabled && (pindex->nHeight >= cons.btcbt_fork_block_height + 1);
 
       if (post_fork) {
           // 포크 이후: BTCBT 한도 엄격 적용 (하드 거절)
@@ -2497,6 +2517,21 @@ bool Chainstate::ConnectBlock(const CBlock& block, BlockValidationState& state, 
              Ticks<MillisecondsDouble>(time_connect) / num_blocks_total);
 
         CAmount blockReward = nFees + GetBlockSubsidy(pindex->nHeight, params.GetConsensus());
+    // BTCBT: post-fork block serialized size hard limit (consensus)
+    {
+        const auto& cons = params.GetConsensus();
+        const bool btcbt_enabled = (cons.btcbt_fork_block_height > 100000);
+        const bool post_fork = btcbt_enabled && (pindex->nHeight >= cons.btcbt_fork_block_height + 1);
+
+        if (post_fork && cons.btcbt_max_block_size > 0) {
+            const uint64_t sz = ::GetSerializeSize(block, PROTOCOL_VERSION);
+            if (sz > (uint64_t)cons.btcbt_max_block_size) {
+                LogPrintf("ERROR: ConnectBlock(): block too large (post-fork) height=%d size=%u limit=%u\n",
+                          pindex->nHeight, (unsigned)sz, (unsigned)cons.btcbt_max_block_size);
+                return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-blk-length");
+            }
+        }
+    }
     if (block.vtx[0]->GetValueOut() > blockReward) {
         LogPrintf("ERROR: ConnectBlock(): coinbase pays too much (actual=%d vs limit=%d)\n", block.vtx[0]->GetValueOut(), blockReward);
         return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-cb-amount");
@@ -2515,6 +2550,15 @@ bool Chainstate::ConnectBlock(const CBlock& block, BlockValidationState& state, 
             LogPrintf("ERROR: ConnectBlock(): fork+1 coinbase must equal exact reward (actual=%d vs expected=%d)\n",
                       block.vtx[0]->GetValueOut(), expected);
             return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "btcbt-exact-cb-required");
+        }
+    }
+    // ✅ BTCBT: fork+6 special subsidy exact coinbase check
+    if (btcbt_enabled && pindex->nHeight == cons.btcbt_fork_block_height + 6) {
+        const CAmount expected = blockReward; // nFees + GetBlockSubsidy(...)
+        if (block.vtx[0]->GetValueOut() != expected) {
+            LogPrintf("ERROR: ConnectBlock(): fork+6 coinbase must equal exact reward (actual=%d vs expected=%d)\n",
+                      block.vtx[0]->GetValueOut(), expected);
+            return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "btcbt-exact-cb-required-fork6");
         }
     }
 }
@@ -3768,7 +3812,7 @@ bool CheckBlock(const CBlock& block, BlockValidationState& state, const Consensu
     }
 
   
-  // BTCBT 포크 이후 블록 크기 및 제한값 적용
+    // BTCBT 포크 이후 블록 크기 및 제한값 적용
 //if (block.nVersion == 1 && block.nTime >= 1719900000 /* BTCBT 포크 블록 시간 기준 */) {
   //  max_block_size   = consensusParams.btcbt_max_block_size;
    // max_block_weight = consensusParams.btcbt_max_block_size;  // BTCBT는 size == weight 가정
@@ -3776,18 +3820,25 @@ bool CheckBlock(const CBlock& block, BlockValidationState& state, const Consensu
 //}
 
 
-    // 블록 크기 검사 (Serialize 기준)
-       // Size limits
- // if (::GetSerializeSize(block, PROTOCOL_VERSION) > max_block_size) {
- //   return state.Invalid(BlockValidationResult::BLOCK_SERIALIZATION, "bad-blk-length");
-//}
+    // 블록 크기 검사 (Serialize 기준) - 컨텍스트(높이) 없이도 적용 가능한 상한만 사용
+    // Size limits
+    {
+        // BTCBT는 합의 최대 블록 크기(예: 32MB)를 consensusParams로 전달받는다.
+        // 다른 체인/넷에서 값이 0이면 기본 상한(MAX_BLOCK_SERIALIZED_SIZE)을 사용한다.
+        const unsigned int limit = consensusParams.btcbt_max_block_size != 0
+            ? static_cast<unsigned int>(consensusParams.btcbt_max_block_size)
+            : static_cast<unsigned int>(MAX_BLOCK_SERIALIZED_SIZE);
+
+        if (::GetSerializeSize(block, PROTOCOL_VERSION) > limit) {
+            return state.Invalid(BlockValidationResult::BLOCK_SERIALIZATION, "bad-blk-length");
+        }
+    }
 
     // (Removed) mempool 기반 Adaptive weight 검사는 합의(Consensus) 리스크가 있어 제거
 
 
     // First transaction must be coinbase, the rest must not be
 
-    // First transaction must be coinbase, the rest must not be
     if (block.vtx.empty() || !block.vtx[0]->IsCoinBase()) {
         return state.Invalid(BlockValidationResult::BLOCK_MUTATED, "bad-cb-missing");
     }

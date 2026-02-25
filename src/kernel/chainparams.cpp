@@ -442,11 +442,11 @@ public:
 
         // ASERT 앵커 (공식 메인넷 런칭 시점용)
         //
-        //  - fork height(903,844)는 그대로 유지 (비트코인 정통 하드포크)
-        //  - 앵커는 BTCBT 첫 블록인 fork+1(=903,845) 높이에 둔다.
-        //  - 앵커 시간은 실제 903,845 블록 헤더의 nTime을 사용 (코드에서 따로 안 가짐)
+                //  - fork height(903,844)는 그대로 유지 (비트코인 정통 하드포크)
+        //  - warmup을 fork+6까지 사용하므로, ASERT 앵커도 fork+6(=903,850)에 둔다.
+        //  - 이렇게 하면 "특별보상 구간(fork+6)까지는 고정 난이도, fork+7부터 DAA 정상 작동"으로 설명이 단순해진다.
         //  - bits는 초기 난이도를 powLimit(0x1d00ffff) 수준으로 설정
-        consensus.btcbt_asert_anchor_height = 903845;
+        consensus.btcbt_asert_anchor_height = 903850; // fork_h(903844) + 6
         consensus.btcbt_asert_anchor_hash   = uint256{};      // ASERT 로직에서 해시는 사용하지 않음 (기록용 placeholder)
         consensus.btcbt_asert_anchor_bits   = 0x1d00ffff;     // powLimit 기반 초기 난이도
         // 포크 이전(레거시 BTC 구간) 파라미터
@@ -467,7 +467,8 @@ public:
         consensus.SegwitHeight = 481824;
         consensus.MinBIP9WarningHeight = 0;
 
-        consensus.nRuleChangeActivationThreshold = 1916;
+                // Bitcoin과 동일: 90% of 2016
+        consensus.nRuleChangeActivationThreshold = 1815;
         consensus.nMinerConfirmationWindow = 2016;
 
         // TESTDUMMY 비활성

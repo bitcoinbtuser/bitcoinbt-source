@@ -52,15 +52,16 @@ LogPrintf("POWDBG[REQ]: h=%d fork_h=%d path=POST_FORK\n", next_height, fork_h);
         return ret;
     }
 
-     // (테스트 리셋용 안전장치) 포크 직후 N블록은 난이도 고정
+         // (테스트 리셋용 안전장치) 포크 직후 N블록은 난이도 고정
     // 목적: ASERT 초기 구간에서 0 반환/compact 깨짐으로 폭주하는 걸 차단
-    if (next_height <= fork_h + 50) {
+    // 공개 검증/감사 관점: fork+6(특별보상 구간)까지만 최소화
+    if (next_height <= fork_h + 6) {
         unsigned int ret = UintToArith256(params.powLimit).GetCompact();
         if (ret == 0) {
             ret = 0x1d00ffff; // 안전 fallback
             LogPrintf("POWDBG[CLAMP]: post_fork warmup powLimit compact=0 -> fallback=%08x\n", ret);
         }
-        LogPrintf("POWDBG[WARMUP]: h=%d <= fork_h+50 -> powLimit=%08x\n", next_height, ret);
+        LogPrintf("POWDBG[WARMUP]: h=%d <= fork_h+6 -> powLimit=%08x\n", next_height, ret);
         return ret;
     }
 
@@ -210,9 +211,19 @@ if (T <= 0) {
     // 기준 타깃: "앵커 bits" (요청사항)
     arith_uint256 target_ref; target_ref.SetCompact(anchor_bits);
 
-    // 시간/높이 오프셋
-    const int64_t time_diff   = pindexLast->GetBlockTime() - anchor->GetBlockTime();
-    const int64_t height_diff = pindexLast->nHeight      - anchor->nHeight;
+        // ✅ next block 기준으로 time/height diff 계산 (pblock->nTime 반영)
+    const int64_t next_height = pindexLast->nHeight + 1;
+
+    int64_t next_block_time = 0;
+    if (pblock) {
+        next_block_time = pblock->GetBlockTime();
+    } else {
+        // 후보 블록 시간이 없으면 보수적으로 "이상적 다음 시간"으로 가정
+        next_block_time = pindexLast->GetBlockTime() + T;
+    }
+
+    const int64_t time_diff   = next_block_time - anchor->GetBlockTime();
+    const int64_t height_diff = next_height     - anchor->nHeight;
     const int64_t ideal_time  = height_diff * T;
     const int64_t offset      = time_diff - ideal_time;
   
