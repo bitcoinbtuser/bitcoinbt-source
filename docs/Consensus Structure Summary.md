@@ -1,4 +1,4 @@
-Consensus Structure Summary
+##Consensus Structure Summary
 BitcoinBT (BTCBT)
 ________________________________________
 1. Network Overview
@@ -15,14 +15,14 @@ ________________________________________
 BitcoinBT applies consensus transition strictly based on block height.
 No signaling mechanism or external approval process is used.
 The primary consensus conditions applied after the fork include:
-•	Per-block difficulty adjustment
+•	ASERT-based per-block difficulty adjustment
 •	32 MB consensus maximum block size
 •	300-second target block interval
 •	Accumulated-work-based chain selection
 All nodes validate blocks under identical consensus rules. Chain selection is determined by the chain with the greatest accumulated Proof-of-Work.
 ________________________________________
 3. Emission Model
-The total supply cap on the Production Mainnet is defined as 21,000,000 BTCBT.
+The total supply cap on the BitcoinBT Mainnet is defined as 21,000,000 BTCBT.
 A special reward of 630,000 BTCBT is issued once at block height 903,850. This amount is included within the total supply cap.
 Block subsidies are calculated based on block height and are reduced by half every 210,000 blocks. Under this structure, total supply increases progressively and converges toward the defined maximum.
 ________________________________________
@@ -33,5 +33,5 @@ Block production occurs through competitive Proof-of-Work hashing. Valid blocks 
 ________________________________________
 5. Document Scope
 This document provides a summary overview of BitcoinBT’s consensus structure and network model for whitepaper submission purposes.
-It does not constitute investment solicitation, financial guarantee, price projection, or legal advice. The authoritative reference for consensus rules is the publicly released software executed on the Production Mainnet.
+It does not constitute investment solicitation, financial guarantee, price projection, or legal advice. The authoritative reference for consensus rules is the publicly released software executed on the BitcoinBT Mainnet.
 
