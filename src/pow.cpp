@@ -11,7 +11,7 @@
 #include <uint256.h>
 #include <util/check.h>
 #include <logging.h>
-
+#include <util/time.h>
 #include <algorithm> // for min/max if needed
 
 // === 내부 함수 선언 ===
@@ -214,13 +214,18 @@ if (T <= 0) {
         // ✅ next block 기준으로 time/height diff 계산 (pblock->nTime 반영)
     const int64_t next_height = pindexLast->nHeight + 1;
 
-    int64_t next_block_time = 0;
+        int64_t next_block_time = 0;
     if (pblock) {
         next_block_time = pblock->GetBlockTime();
     } else {
-        // 후보 블록 시간이 없으면 보수적으로 "이상적 다음 시간"으로 가정
-        next_block_time = pindexLast->GetBlockTime() + T;
+        // ✅ 템플릿/채굴 작업 생성에서도 "현재 시각" 기준으로 bits를 계산해야
+        //    검증(exp)과 동일해져서 bad-diffbits가 사라짐
+                int64_t now = GetTime();
+        const int64_t min_time = pindexLast->GetMedianTimePast() + 1;
+        if (now < min_time) now = min_time;
+        next_block_time = now;
     }
+
 
     const int64_t time_diff   = next_block_time - anchor->GetBlockTime();
     const int64_t height_diff = next_height     - anchor->nHeight;
