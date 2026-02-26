@@ -1,4 +1,4 @@
-##Consensus Structure Summary
+Consensus Structure Summary
 BitcoinBT (BTCBT)
 ________________________________________
 1. Network Overview
