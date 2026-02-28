@@ -1,218 +1,280 @@
 # BitcoinBT (BTCBT)
-## Technical Specification for Exchange Review
+## Technical Specification Summary  
 
 ---
 
-## 1. Network Definition
+## 1. Network Definition and Fork Structure
 
-BitcoinBT (BTCBT) is a SHA-256 Proof-of-Work blockchain implemented as a deterministic consensus fork inheriting the Bitcoin blockchain history up to block height **903,844**.
+BitcoinBT (BTCBT) is a SHA-256d (double SHA-256) Proof-of-Work blockchain implemented as a deterministic consensus fork of Bitcoin.
 
-### Fork Structure
+BTCBT fully inherits Bitcoin’s blockchain history up to block height **903,844** and activates modified consensus rules starting at block **903,845**.
 
-- **Historical Inheritance:** Blocks 0 – 903,844  
-- **Consensus Activation Height:** 903,845  
-- **Genesis Block:** Bitcoin genesis block (inherited, unchanged)  
-- **Branching Mechanism:** Block-height-based deterministic switch  
+### 1.1 Fork Parameters
 
-Consensus activation is determined strictly by block height.  
-No external signaling, governance voting, or centralized activation logic exists.
+- **Fork Height (H_f):** 903,844  
+- **Activation Height (H_a):** 903,845  
+- **Genesis Block:** Bitcoin genesis block (unchanged)  
+- **Consensus Switch:** Determined strictly by block height  
+- **Chain Selection Rule:** Maximum accumulated work (`nChainWork`)
 
----
+No governance vote, miner signaling, runtime parameter, or centralized trigger is involved in activation.
 
-## 2. Post-Fork Consensus Parameters
+### 1.2 Deterministic Branch Function
 
-The following parameters apply to blocks with height ≥ 903,845.
+\[
+R(h) =
+\begin{cases}
+R_{BTC} & \text{if } h \le 903{,}844 \\
+R_{BTCBT} & \text{if } h \ge 903{,}845
+\end{cases}
+\]
 
-| Parameter | Value |
-|------------|--------|
-| Proof-of-Work | SHA-256 (double SHA-256) |
-| Target Block Interval | 300 seconds |
-| Difficulty Adjustment | ASERT |
-| ASERT Half-Life | 172,800 seconds (2 days) |
-| Consensus Max Block Size | 32 MB (32,000,000 bytes) |
-| Halving Interval | 210,000 blocks |
-| Maximum Supply (Production Mainnet) | 21,000,000 BTCBT |
+The fork boundary is a constant defined in chain parameters and cannot be altered.
 
-All parameters above are enforced at the consensus level.
-
-The special reward described below is included within this maximum supply cap.
+BTCBT is not a snapshot-based replication.  
+State continuity is achieved through full consensus re-validation from the inherited chain history.
 
 ---
 
-## 3. Supply and Emission Structure
+## 2. Consensus Preservation and Modifications
 
-### 3.1 Maximum Supply
+### 2.1 Consensus Elements Preserved from Bitcoin
 
-**Production Mainnet Maximum Supply:**  
-21,000,000 BTCBT  
+The following consensus structures remain identical to Bitcoin Core:
 
-Issuance exceeding this cap constitutes a consensus violation and results in block invalidation.
+- 80-byte block header format  
+- SHA-256d Proof-of-Work algorithm  
+- UTXO-based state transition model  
+- Script execution semantics  
+- SegWit and Taproot validation paths  
+- Chain selection via accumulated ChainWork  
+- MedianTimePast (MTP) timestamp constraints  
 
----
-
-### 3.2 Special Reward
-
-A one-time special reward of **630,000 BTCBT** is issued at block height:
-
-**903,850**
-
-This reward:
-
-- Is included within the 21,000,000 BTCBT maximum supply cap  
-- Does not create additional inflation beyond the cap  
-- Is enforced strictly at the consensus level  
-- Does not alter the geometric subsidy reduction schedule beyond the defined maximum supply  
+BitcoinBT does not redesign the fundamental Bitcoin consensus architecture.
 
 ---
 
-### 3.3 Block Subsidy Mechanism
+### 2.2 Modified Consensus Parameters
 
-Block subsidy is:
-
-- Determined exclusively by block height  
-- Halved every 210,000 blocks  
-- Validated during block verification  
-
-Changes to subsidy rules require consensus software updates and network adoption.
-
----
-
-## 4. Difficulty Adjustment (ASERT)
-
-BitcoinBT applies ASERT difficulty adjustment per block.
-
-### Properties
-
-- Difficulty recalculated for every block  
-- No periodic retarget window  
-- No minimum-difficulty exception rule  
-- Continuous time-deviation-based correction  
-
-### ASERT Configuration
-
-- Half-life: 172,800 seconds  
-- Reference anchor: Fork boundary block  
-
-Difficulty recalculation cannot be disabled at runtime.
+| Parameter | Bitcoin | BitcoinBT |
+|-----------|----------|------------|
+| Difficulty Adjustment | 2016-block retarget | ASERT |
+| ASERT Half-life | — | 172,800 seconds |
+| Target Block Interval | 600 seconds | 300 seconds |
+| Max Serialized Block Size | 1 MB | 32 MB |
+| Redistribution Logic | None | 630,000 BTCBT structured redistribution |
 
 ---
 
-## 5. Block Structure
+## 3. Difficulty Adjustment Algorithm (ASERT)
 
-BitcoinBT preserves the inherited Bitcoin block structure.
+### 3.1 Anchor Definition
 
-### Block Header (80 bytes)
-
-- nVersion (4 bytes)  
-- hashPrevBlock (32 bytes)  
-- hashMerkleRoot (32 bytes)  
-- nTime (4 bytes)  
-- nBits (4 bytes)  
-- nNonce (4 bytes)  
-
-### Validity Condition
-
-BlockHash ≤ Target
-
-Target is derived from `nBits` using compact encoding.
-
-Blocks exceeding **32,000,000 bytes** are rejected at the consensus layer.
+- **Anchor Height:**  
+  \[
+  h_0 = 903{,}845
+  \]
+- **Anchor Target:** \(T_0\)  
+- **Anchor Timestamp:** \(t_0\)
 
 ---
 
-## 6. Signature and Script Rules
+### 3.2 Time Error
 
-BitcoinBT:
-
-- Does NOT introduce SIGHASH ForkID  
-- Preserves Bitcoin-compatible signature validation  
-- Preserves the UTXO model  
-- Preserves the script execution model  
-
-Transaction validation logic remains structurally equivalent to inherited rules.
+\[
+\Delta t = (t_h - t_0) - 300(h - h_0)
+\]
 
 ---
 
-## 7. Chain Selection Rule
+### 3.3 Target Formula
 
-Chain selection is determined exclusively by:
+\[
+Target(h) = T_0 \cdot 2^{\left(\frac{\Delta t}{172{,}800}\right)}
+\]
 
-> Greatest accumulated proof-of-work
+Properties:
 
-No centralized checkpointing logic is introduced beyond inherited architecture.
-
----
-
-## 8. Network Architecture
-
-BitcoinBT operates as a permissionless P2P network.
-
-Each node independently:
-
-- Validates transactions  
-- Validates blocks  
-- Propagates valid data  
-- Rejects consensus-invalid blocks  
-
-There is no centralized authority capable of overriding consensus rules.
+- Continuous per-block adjustment  
+- No retarget window  
+- Immediate response to hashrate variation  
+- Upper bounded by `powLimit`
 
 ---
 
-## 9. Deterministic Validation
+### 3.4 Header Consistency Condition
 
-For identical input data and identical software version:
+\[
+Expand(nBits_h) = Target(h)
+\]
 
-Nodes produce identical validation results.
-
-Consensus parameters are defined as constants and height-based conditions within source code.  
-Core consensus logic cannot be modified at runtime.
-
----
-
-## 10. Development Base
-
-- Codebase Origin: Bitcoin Core v26  
-
-### Modification Scope
-
-- Chain parameters  
-- ASERT difficulty logic  
-- Target block interval  
-- Consensus max block size  
-- Height-based branching logic  
-
-Transaction verification structure and validation architecture remain unchanged.
+If this condition fails, the block is rejected.
 
 ---
 
-## 11. Current Phase
+## 4. Monetary Policy and Supply Cap
 
-The project is currently in a controlled validation and implementation verification phase.
+### 4.1 Base Monetary Parameters
 
-### Internally Verified
-
-- Post-fork consensus branching  
-- Per-block ASERT difficulty adjustment  
-- Block reward calculation path  
-- Block size cap enforcement  
-- Multi-node synchronization  
-
-Large-scale external network validation is outside the scope of this document.
-
-Test environments may operate with temporary or experimental parameters.  
-Such environments do not modify or redefine the Production mainnet consensus specification described here.
+- Initial Subsidy:  
+  \[
+  S_0 = 50 \text{ BTCBT}
+  \]
+- Halving Interval:  
+  \[
+  I = 210{,}000 \text{ blocks}
+  \]
 
 ---
 
-## 12. Scope Limitation
+### 4.2 Subsidy Function
 
-This specification:
+\[
+BaseSubsidy(h) = S_0 \gg \left\lfloor \frac{h}{I} \right\rfloor
+\]
 
-- Does not provide investment advice  
-- Does not provide valuation guidance  
-- Does not provide legal advice  
-- Describes consensus parameters only  
+Subsidy is computed using integer arithmetic only.
 
-The final authority for consensus rules is:
+---
 
-> The publicly released source code and the corresponding production mainnet release tag.
+### 4.3 Total Supply Cap
+
+\[
+TotalSupply \le 21{,}000{,}000 \text{ BTCBT}
+\]
+
+Supply converges mathematically as a geometric series.
+
+---
+
+## 5. 630,000 BTCBT Redistribution Structure
+
+This mechanism modifies issuance timing without increasing long-term supply.
+
+---
+
+### 5.1 Redistribution Block
+
+\[
+H_r = 903{,}850
+\]
+
+\[
+Subsidy(H_r) = BaseSubsidy(H_r) + 630{,}000
+\]
+
+---
+
+### 5.2 Offset Schedule
+
+For the subsequent 630,000 blocks:
+
+\[
+Subsidy(h) = BaseSubsidy(h) - 1
+\]
+
+Negative subsidy is not permitted.
+
+---
+
+### 5.3 Net Supply Invariance
+
+\[
++630{,}000 - 630{,}000 = 0
+\]
+
+\[
+TotalSupply \le 21{,}000{,}000
+\]
+
+The supply cap is unchanged.
+
+---
+
+## 6. Chain Selection and Security Model
+
+### 6.1 Work per Block
+
+\[
+Work(h) =
+\left\lfloor
+\frac{2^{256}}{Target(h) + 1}
+\right\rfloor
+\]
+
+---
+
+### 6.2 Accumulated ChainWork
+
+\[
+ChainWork(h) = \sum_{i=0}^{h} Work(i)
+\]
+
+---
+
+### 6.3 Active Chain Rule
+
+\[
+ActiveChain = \arg\max ChainWork
+\]
+
+Chain selection is determined by cumulative computational work, not block count.
+
+---
+
+## 7. Consensus Invariants
+
+For every block height \(h\):
+
+### 7.1 Proof-of-Work Validity
+
+\[
+Hash_{SHA256d}(Header_h) \le Target(h)
+\]
+
+---
+
+### 7.2 Supply Cap Enforcement
+
+\[
+TotalSupply(h) \le 21{,}000{,}000
+\]
+
+---
+
+### 7.3 ChainWork Monotonicity
+
+\[
+ChainWork(h) > ChainWork(h-1)
+\]
+
+---
+
+### 7.4 Timestamp Constraints
+
+\[
+MTP(h-1) < Timestamp(h) \le NetworkTime + 7200
+\]
+
+---
+
+### 7.5 Deterministic Consensus
+
+\[
+Consensus = F(Block_h, State_{h-1}, Constants)
+\]
+
+Consensus does not depend on external signaling, policy rules, or majority voting.
+
+---
+
+## 8. Summary
+
+BitcoinBT preserves Bitcoin’s consensus security model while introducing:
+
+- ASERT-based per-block difficulty adjustment  
+- 5-minute block interval  
+- 32MB maximum serialized block size  
+- Structured reward redistribution without supply inflation  
+
+The system remains fully deterministic, supply-capped, and work-secured.
