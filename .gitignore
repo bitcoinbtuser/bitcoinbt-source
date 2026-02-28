@@ -166,3 +166,26 @@ lnd/
 build-win64/
 dist-win64-nogui/
 win64-stage/
+# build artifacts
+build/
+*.o
+*.a
+*.so
+*.dylib
+*.exe
+*.dll
+*.log
+*.pid
+*.stamp
+.cache/
+.dep/
+# local IDE
+.vscode/
+.idea/
+# autotools / cmake
+config.log
+config.status
+autom4te.cache/
+CMakeFiles/
+CMakeCache.txt
+Makefile

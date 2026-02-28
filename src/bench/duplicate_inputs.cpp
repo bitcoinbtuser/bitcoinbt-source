@@ -4,6 +4,7 @@
 
 #include <bench/bench.h>
 #include <chainparams.h>
+#include <consensus/consensus.h>
 #include <consensus/merkle.h>
 #include <consensus/validation.h>
 #include <pow.h>
@@ -11,7 +12,6 @@
 #include <test/util/setup_common.h>
 #include <txmempool.h>
 #include <validation.h>
-
 
 static void DuplicateInputs(benchmark::Bench& bench)
 {

@@ -435,10 +435,10 @@ public:
         consensus.btcbt_fork_block_hash   = uint256S("000000000000000000015f4b69129c42068a384d79b7693efd426a369b865fa9");
 
                 // 포크 이후 BTCBT 규칙
-        consensus.btcbt_block_interval         = 5 * 60;        // 5분
-        consensus.btcbt_halving_interval       = 210000;        // 약 2년
-        consensus.btcbt_max_block_size         = 32'000'000;    // 32 MB
-        consensus.btcbt_max_block_sigops_cost  = 320000;
+ consensus.btcbt_block_interval         = 5 * 60;        // 5분
+consensus.btcbt_halving_interval       = 210000;        // 약 2년
+consensus.btcbt_max_block_size         = 32'000'000;    // 32 MB
+consensus.btcbt_max_block_sigops_cost  = 80'000;
 
         // ASERT 앵커 (공식 메인넷 런칭 시점용)
         //
@@ -446,9 +446,10 @@ public:
         //  - warmup을 fork+6까지 사용하므로, ASERT 앵커도 fork+6(=903,850)에 둔다.
         //  - 이렇게 하면 "특별보상 구간(fork+6)까지는 고정 난이도, fork+7부터 DAA 정상 작동"으로 설명이 단순해진다.
         //  - bits는 초기 난이도를 powLimit(0x1d00ffff) 수준으로 설정
-        consensus.btcbt_asert_anchor_height = 903850; // fork_h(903844) + 6
-        consensus.btcbt_asert_anchor_hash   = uint256{};      // ASERT 로직에서 해시는 사용하지 않음 (기록용 placeholder)
-        consensus.btcbt_asert_anchor_bits   = 0x1d00ffff;     // powLimit 기반 초기 난이도
+ consensus.btcbt_asert_anchor_height = 903850;
+ consensus.btcbt_asert_anchor_hash   = uint256{};
+ consensus.btcbt_asert_anchor_bits   = 0x1d00ffff;
+ consensus.btcbt_asert_half_life     = 172800;   // ✅ 2 days
         // 포크 이전(레거시 BTC 구간) 파라미터
         consensus.nSubsidyHalvingInterval = 210000;
 

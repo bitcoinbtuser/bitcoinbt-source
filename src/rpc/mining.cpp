@@ -877,21 +877,21 @@ static RPCHelpMan getblocktemplate()
     UniValue result(UniValue::VOBJ);
     result.pushKV("capabilities", aCaps);
 
-        UniValue aRules(UniValue::VARR);
-    aRules.push_back("csv");
-    if (!fPreSegWit) aRules.push_back("segwit");  // segwit 활성 시에는 'segwit'
+            UniValue aRules(UniValue::VARR);
+aRules.push_back("csv");
+if (!fPreSegWit) aRules.push_back("segwit");  // segwit 활성 시에는 'segwit'
 
-    // BTCBT 하드포크 이후에는 특별 rules 표시
-    const CChainParams& chainparams = Params();
-    if (pindexPrev->nHeight + 1 >= chainparams.GetConsensus().btcbt_fork_block_height) {
-        aRules.push_back("btcbt-hardfork");
-    }
+// BTCBT 하드포크 이후에는 특별 rules 표시 (fork+1부터)
+const CChainParams& chainparams = Params();
+if (pindexPrev->nHeight + 1 >= (chainparams.GetConsensus().btcbt_fork_block_height + 1)) {
+    aRules.push_back("btcbt-hardfork");
+}
 
 
-    if (consensusParams.signet_blocks) {
-        // indicate to miner that they must understand signet rules
-        // when attempting to mine with this template
-        aRules.push_back("!signet");
+if (consensusParams.signet_blocks) {
+    // indicate to miner that they must understand signet rules
+    // when attempting to mine with this template
+    aRules.push_back("!signet");
     }
 
     UniValue vbavailable(UniValue::VOBJ);
@@ -970,10 +970,17 @@ result.pushKV("btcbt_fork_active", true);
         CHECK_NONFATAL(nSizeLimit % WITNESS_SCALE_FACTOR == 0);
         nSizeLimit /= WITNESS_SCALE_FACTOR;
     }
+
+    // BTCBT (B안): 템플릿 weightlimit은 "포크 이후(fork+1)"에만 32MB 기준으로 확장
+    int64_t nWeightLimit = (int64_t)MAX_BLOCK_WEIGHT;
+    if ((pindexPrev->nHeight + 1) >= (consensusParams.btcbt_fork_block_height + 1) && consensusParams.btcbt_max_block_size > 0) {
+        nWeightLimit = (int64_t)consensusParams.btcbt_max_block_size * (int64_t)WITNESS_SCALE_FACTOR; // 32,000,000 * 4 = 128,000,000
+    }
+
     result.pushKV("sigoplimit", nSigOpLimit);
     result.pushKV("sizelimit", nSizeLimit);
     if (!fPreSegWit) {
-        result.pushKV("weightlimit", (int64_t)MAX_BLOCK_WEIGHT);
+        result.pushKV("weightlimit", nWeightLimit);
     }
     result.pushKV("curtime", pblock->GetBlockTime());
     result.pushKV("bits", strprintf("%08x", pblock->nBits));

@@ -895,14 +895,8 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
     // No individual transactions are allowed below the mempool min feerate except from disconnected
     // blocks and transactions in a package. Package transactions will be checked using package
     // feerate later.
-    // BTCBT 포크 이후에만 적용할 수 있는 트랜잭션 정책들
-        if (m_active_chainstate.m_chain.Height() + 1 >= m_active_chainstate.m_chainman.GetConsensus().btcbt_fork_block_height) {
-        // 정책 실험 코드 보류: 실제 사용 시 설정값으로 활성화
-        // (현재는 사용 안 하므로 경고를 피하기 위해 변수 선언 제거)
-    }
-
-
-  if (!bypass_limits && !args.m_package_feerates && !CheckFeeRate(ws.m_vsize, ws.m_modified_fees, state)) return false;
+     
+ if (!bypass_limits && !args.m_package_feerates && !CheckFeeRate(ws.m_vsize, ws.m_modified_fees, state)) return false;
 
 ws.m_iters_conflicting = m_pool.GetIterSet(ws.m_conflicts);
 
@@ -2462,26 +2456,28 @@ bool Chainstate::ConnectBlock(const CBlock& block, BlockValidationState& state, 
              // 누적 SigOps
   nSigOpsCost += GetTransactionSigOpCost(tx, view, flags);
 
-  if (params.GetChainType() != ChainType::REGTEST) {
+    if (params.GetChainType() != ChainType::REGTEST) {
       const auto& cons = params.GetConsensus();
-      // BTCBT 규칙이 진짜로 세팅된 체인에서만(예: fork 높이가 정상치일 때만) 발동
-      const bool btcbt_enabled = (cons.btcbt_fork_block_height > 100000);
+      const bool btcbt_enabled = (params.GetChainType() == ChainType::BTCBT);
       const bool post_fork = btcbt_enabled && (pindex->nHeight >= cons.btcbt_fork_block_height + 1);
 
       if (post_fork) {
           // 포크 이후: BTCBT 한도 엄격 적용 (하드 거절)
-          const int64_t limit = cons.btcbt_max_block_sigops_cost;
+          const int64_t limit = (cons.btcbt_max_block_sigops_cost > 0)
+              ? cons.btcbt_max_block_sigops_cost
+              : (int64_t)MAX_BLOCK_SIGOPS_COST;
+
           if (nSigOpsCost > limit) {
               LogPrintf("ERROR: ConnectBlock(): too many sigops (post-fork) height=%d sigops=%d limit=%d\n",
                         pindex->nHeight, nSigOpsCost, limit);
               return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-blk-sigops");
           }
       } else {
-          // 포크 이전(또는 BTCBT 규칙 미활성): 호환성 — 초과해도 경고만 남기고 통과
           const int64_t legacy_limit = MAX_BLOCK_SIGOPS_COST;
           if (nSigOpsCost > legacy_limit) {
-              LogPrintf("WARN: pre-fork/legacy block sigops=%d > legacy_limit=%d at height=%d (accepting)\n",
-                        nSigOpsCost, legacy_limit, pindex->nHeight);
+              LogPrintf("ERROR: ConnectBlock(): too many sigops (pre-fork) height=%d sigops=%d limit=%d\n",
+                        pindex->nHeight, nSigOpsCost, legacy_limit);
+              return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-blk-sigops");
           }
       }
   }
@@ -2518,9 +2514,9 @@ bool Chainstate::ConnectBlock(const CBlock& block, BlockValidationState& state, 
 
         CAmount blockReward = nFees + GetBlockSubsidy(pindex->nHeight, params.GetConsensus());
     // BTCBT: post-fork block serialized size hard limit (consensus)
-    {
+             {
         const auto& cons = params.GetConsensus();
-        const bool btcbt_enabled = (cons.btcbt_fork_block_height > 100000);
+        const bool btcbt_enabled = (params.GetChainType() == ChainType::BTCBT);
         const bool post_fork = btcbt_enabled && (pindex->nHeight >= cons.btcbt_fork_block_height + 1);
 
         if (post_fork && cons.btcbt_max_block_size > 0) {
@@ -2530,8 +2526,25 @@ bool Chainstate::ConnectBlock(const CBlock& block, BlockValidationState& state, 
                           pindex->nHeight, (unsigned)sz, (unsigned)cons.btcbt_max_block_size);
                 return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-blk-length");
             }
+
+            const uint64_t wlimit = (uint64_t)cons.btcbt_max_block_size * WITNESS_SCALE_FACTOR;
+            const uint64_t w = (uint64_t)::GetBlockWeight(block);
+            if (w > wlimit) {
+                LogPrintf("ERROR: ConnectBlock(): block too heavy (post-fork) height=%d weight=%u limit=%u\n",
+                          pindex->nHeight, (unsigned)w, (unsigned)wlimit);
+                return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-blk-weight");
+            }
+        } else if (btcbt_enabled) {
+            // pre-fork(<=fork_h) 구간은 Bitcoin 규칙 보존: 4,000,000 weight 고정
+            const uint64_t w = (uint64_t)::GetBlockWeight(block);
+            if (w > (uint64_t)MAX_BLOCK_WEIGHT) {
+                LogPrintf("ERROR: ConnectBlock(): block too heavy (pre-fork) height=%d weight=%u limit=%u\n",
+                          pindex->nHeight, (unsigned)w, (unsigned)MAX_BLOCK_WEIGHT);
+                return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-blk-weight");
+            }
         }
     }
+
     if (block.vtx[0]->GetValueOut() > blockReward) {
         LogPrintf("ERROR: ConnectBlock(): coinbase pays too much (actual=%d vs limit=%d)\n", block.vtx[0]->GetValueOut(), blockReward);
         return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-cb-amount");
@@ -2541,11 +2554,11 @@ bool Chainstate::ConnectBlock(const CBlock& block, BlockValidationState& state, 
 // ⚠️ 안전 가드: 포크 높이가 비정상(작게 설정)일 때는 절대 발동하지 않도록 차단
 {
     const auto& cons = params.GetConsensus();
-    // 합리적 최소값(예: 900k 이상)으로 가드 — 잘못 0/소수로 설정돼도 pre-fork엔 영향 無
-    const bool btcbt_enabled = (cons.btcbt_fork_block_height >= 900000);
+    const bool btcbt_enabled = (params.GetChainType() == ChainType::BTCBT);
 
     if (btcbt_enabled && pindex->nHeight == cons.btcbt_fork_block_height + 1) {
         const CAmount expected = blockReward; // nFees + GetBlockSubsidy(...)
+
         if (block.vtx[0]->GetValueOut() != expected) {
             LogPrintf("ERROR: ConnectBlock(): fork+1 coinbase must equal exact reward (actual=%d vs expected=%d)\n",
                       block.vtx[0]->GetValueOut(), expected);
@@ -3820,22 +3833,25 @@ bool CheckBlock(const CBlock& block, BlockValidationState& state, const Consensu
 //}
 
 
-    // 블록 크기 검사 (Serialize 기준) - 컨텍스트(높이) 없이도 적용 가능한 상한만 사용
-    // Size limits
-    {
-        // BTCBT는 합의 최대 블록 크기(예: 32MB)를 consensusParams로 전달받는다.
-        // 다른 체인/넷에서 값이 0이면 기본 상한(MAX_BLOCK_SERIALIZED_SIZE)을 사용한다.
-        const unsigned int limit = consensusParams.btcbt_max_block_size != 0
-            ? static_cast<unsigned int>(consensusParams.btcbt_max_block_size)
-            : static_cast<unsigned int>(MAX_BLOCK_SERIALIZED_SIZE);
+     // NOTE (BTCBT B-Plan):
+    // CheckBlock()에는 height 컨텍스트가 없으므로,
+    // 여기서는 "버퍼/DoS 상한"만 검사하고(=MAX_BLOCK_SERIALIZED_SIZE 기반),
+    // 실제 합의 한도(포크 전 4MW, 포크 후 32MB)는 ConnectBlock()에서 강제한다.
 
-        if (::GetSerializeSize(block, PROTOCOL_VERSION) > limit) {
-            return state.Invalid(BlockValidationResult::BLOCK_SERIALIZATION, "bad-blk-length");
-        }
+{
+    if (::GetSerializeSize(block, PROTOCOL_VERSION) > MAX_BLOCK_SERIALIZED_SIZE) {
+        return state.Invalid(BlockValidationResult::BLOCK_SERIALIZATION, "bad-blk-length");
     }
+}
 
-    // (Removed) mempool 기반 Adaptive weight 검사는 합의(Consensus) 리스크가 있어 제거
-
+{
+    // non-contextual DoS limit: serialized_size(<=32MB) 기준으로 가능한 최대 weight 상한만 허용
+    const uint64_t max_weight_nocontext =
+        (uint64_t)MAX_BLOCK_SERIALIZED_SIZE * (uint64_t)WITNESS_SCALE_FACTOR; // 32,000,000 * 4 = 128,000,000
+    if ((uint64_t)GetBlockWeight(block) > max_weight_nocontext) {
+        return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-blk-weight");
+    }
+}
 
     // First transaction must be coinbase, the rest must not be
 
@@ -4007,12 +4023,12 @@ static bool ContextualCheckBlock(const CBlock& block, BlockValidationState& stat
                                      pindexPrev->GetMedianTimePast() :
                                      block.GetBlockTime();
 
-   // ✅ BTCBT 포크 "이후(=fork+1)"부터만 MTP 검사 적용 (BTCBT 활성화 가드 포함)
-const auto& consensus = chainman.GetConsensus();
-const bool btcbt_enabled = (consensus.btcbt_fork_block_height > 100000);
-if (pindexPrev && btcbt_enabled && nHeight >= consensus.btcbt_fork_block_height + 1) {
-    const int64_t medianTimePast = pindexPrev->GetMedianTimePast();
-    if (block.GetBlockTime() <= medianTimePast) {
+     // ✅ BTCBT 포크 "이후(=fork+1)"부터만 MTP 검사 적용
+ const auto& consensus = chainman.GetConsensus();
+ const bool btcbt_enabled = (chainman.GetParams().GetChainType() == ChainType::BTCBT);
+ if (pindexPrev && btcbt_enabled && nHeight >= consensus.btcbt_fork_block_height + 1) {
+     const int64_t medianTimePast = pindexPrev->GetMedianTimePast();
+     if (block.GetBlockTime() <= medianTimePast) {
         return state.Invalid(
             BlockValidationResult::BLOCK_INVALID_HEADER,
             "btcbt-time-too-old",

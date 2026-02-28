@@ -33,34 +33,36 @@
 // Adaptive Block Size: 동적 블록 크기 계산 함수
 int GetAdaptiveMaxBlockWeight(size_t mempool_tx_count, int cur_height, const Consensus::Params& consensus)
 {
-    // ✅ regtest 우회: 항상 MAX_BLOCK_WEIGHT 반환 (4,000,000)
+    // ✅ regtest 우회: 항상 4,000,000 weight 고정
+    constexpr int REGTEST_BLOCK_MAX_WEIGHT = 4'000'000;
     const CChainParams& params = Params();
     if (params.GetChainType() == ChainType::REGTEST) {
-        return MAX_BLOCK_WEIGHT;
+        return REGTEST_BLOCK_MAX_WEIGHT;
     }
 
-    // ── 합의 한도 내에서 동작 ──
-    const int hard_cap = std::min<int>(static_cast<int>(MAX_BLOCK_WEIGHT),
-                                       static_cast<int>(consensus.btcbt_max_block_size));
+    // ── 모든 값은 "weight" 단위로 통일 ──
+    // btcbt_max_block_size 는 (이름/관례상) bytes로 두고, 여기서 weight로 환산해서 사용
+    const int btcbt_max_weight = (int)(consensus.btcbt_max_block_size * WITNESS_SCALE_FACTOR);
+    const int hard_cap_weight  = btcbt_max_weight;
 
-    const bool post_fork = (cur_height >= consensus.btcbt_fork_block_height);
+    const bool post_fork = (cur_height >= (consensus.btcbt_fork_block_height + 1));
 
-    // 하한/상한을 합의 한도 내에서 결정
-    const int min_weight = std::min<int>(hard_cap, post_fork ? 8'000'000 : 4'000'000);
-    const int max_weight = std::min<int>(hard_cap, 32'000'000);
+    // 포크 전: 기존 4,000,000 weight (1MB 수준)
+    // 포크 후: 최소 8MB(bytes) = 32,000,000 weight
+    const int min_weight = std::min<int>(hard_cap_weight, post_fork ? 32'000'000 : 4'000'000);
+    const int max_weight = std::min<int>(hard_cap_weight, btcbt_max_weight);
 
-    // ✅ 가드: mempool=0 또는 매우 적을 때 분모 0/불안정 방지
     if (mempool_tx_count == 0)       return min_weight;
     if (mempool_tx_count <= 1'000)   return min_weight;
     if (mempool_tx_count >= 100'000) return max_weight;
 
-    // ✅ 64bit 계산 후 최종 int로 clamp
     const int64_t span = (int64_t)max_weight - (int64_t)min_weight;
     const int64_t add  = ((int64_t)mempool_tx_count * span) / 100'000;
     const int64_t res  = (int64_t)min_weight + add;
 
     return (int)std::clamp<int64_t>(res, min_weight, max_weight);
 }
+
 using node::g_node;
 // 찾기용 앵커(끝): GetAdaptiveMaxBlockWeight REPLACE END
 namespace node {
@@ -88,15 +90,22 @@ void RegenerateCommitments(CBlock& block, ChainstateManager& chainman)
 // 찾기용 앵커(시작): BlockAssembler-ctor REPLACE START
 static BlockAssembler::Options ClampOptions(BlockAssembler::Options options)
 {
-    // 후속 패치: 합의 한도 내에서 상한을 계산
-    const Consensus::Params& consensus = Params().GetConsensus();
-    const size_t hard_cap = static_cast<size_t>(std::min<int>(
-        static_cast<int>(MAX_BLOCK_WEIGHT),
-        static_cast<int>(consensus.btcbt_max_block_size)));
+    const CChainParams& params = Params();
+    const Consensus::Params& consensus = params.GetConsensus();
+
+    const size_t btcbt_max_weight =
+        (consensus.btcbt_max_block_size > 0)
+            ? static_cast<size_t>(consensus.btcbt_max_block_size) * WITNESS_SCALE_FACTOR
+            : static_cast<size_t>(MAX_BLOCK_WEIGHT); // 안전 폴백
+
+    // BTCBT 체인은 post-fork 상한(=btcbt_max_weight)을 사용, 그 외 체인은 레거시 MAX_BLOCK_WEIGHT 사용
+    const size_t hard_cap = (params.GetChainType() == ChainType::BTCBT)
+        ? btcbt_max_weight
+        : static_cast<size_t>(MAX_BLOCK_WEIGHT);
+
     options.nBlockMaxWeight = std::clamp<size_t>(options.nBlockMaxWeight, static_cast<size_t>(4000), hard_cap);
     return options;
 }
-
 BlockAssembler::BlockAssembler(Chainstate& chainstate, const CTxMemPool* mempool, const Options& options)
     : chainparams{chainstate.m_chainman.GetParams()},
       m_mempool{mempool},
@@ -118,26 +127,29 @@ BlockAssembler::BlockAssembler(Chainstate& chainstate, const CTxMemPool* mempool
 // 찾기용 앵커(시작): ApplyArgsManOptions LOG FIX REPLACE START
 void ApplyArgsManOptions(const ArgsManager& args, BlockAssembler::Options& options)
 {
-    // REGTEST: -blockmaxweight 무시하고 고정 한도
     const CChainParams& params = Params();
-    if (params.GetChainType() == ChainType::REGTEST) {
-        options.nBlockMaxWeight = MAX_BLOCK_WEIGHT;
-    } else {
-        // 그 외 체인: 사용자 인자 허용하되 4000 ~ MAX_BLOCK_WEIGHT 범위로 clamp
-        const int user_w = args.GetIntArg("-blockmaxweight", static_cast<int>(options.nBlockMaxWeight));
-        options.nBlockMaxWeight = std::clamp<size_t>(
-            static_cast<size_t>(user_w), 4000, static_cast<size_t>(MAX_BLOCK_WEIGHT));
-    }
-    // 👇 로그: v26 호환을 위해 LogPrintf 사용, size_t는 %zu
-    LogPrintf("ApplyArgsManOptions: nBlockMaxWeight=%zu\n", options.nBlockMaxWeight);
+    const auto& consensus = params.GetConsensus();
 
-    // (기존) -blockmintxfee 처리 유지
+    // 체인별 상한(weight)
+    size_t hard_cap = static_cast<size_t>(MAX_BLOCK_WEIGHT); // legacy default (main/test/signet)
+    if (params.GetChainType() == ChainType::REGTEST) {
+        hard_cap = 4'000'000; // regtest는 고정
+    } else if (params.GetChainType() == ChainType::BTCBT && consensus.btcbt_max_block_size != 0) {
+        hard_cap = static_cast<size_t>(consensus.btcbt_max_block_size) * WITNESS_SCALE_FACTOR; // 32MB -> 128M weight
+    }
+
+    const int user_w = args.GetIntArg("-blockmaxweight", static_cast<int>(options.nBlockMaxWeight));
+    options.nBlockMaxWeight = std::clamp<size_t>(static_cast<size_t>(user_w), 4000, hard_cap);
+
+    LogPrintf("ApplyArgsManOptions: nBlockMaxWeight=%zu (hard_cap=%zu)\n", options.nBlockMaxWeight, hard_cap);
+
     if (const auto blockmintxfee{args.GetArg("-blockmintxfee")}) {
         if (const auto parsed{ParseMoney(*blockmintxfee)}) {
             options.blockMinFeeRate = CFeeRate{*parsed};
         }
     }
 }
+
 // 찾기용 앵커(끝): ApplyArgsManOptions LOG FIX REPLACE END
 
 
@@ -155,14 +167,13 @@ static BlockAssembler::Options ConfiguredOptions(const CTxMemPool* mempool, cons
     const CBlockIndex* tip = chainstate.m_chain.Tip();
     const int cur_height = tip ? (tip->nHeight + 1) : 0;
 
-    // ✅ REGTEST: 항상 고정 한도 반환
-    if (is_regtest) {
-        options.nBlockMaxWeight = MAX_BLOCK_WEIGHT;
-        // 👇 로그
-        LogPrintf("ConfiguredOptions[regtest]: mp=%d, height=%d, nBlockMaxWeight=%zu\n",
-                  mp, cur_height, static_cast<size_t>(options.nBlockMaxWeight));
-        return ClampOptions(options);
-    }
+ // ✅ REGTEST: 항상 고정 한도 반환
+if (is_regtest) {
+    options.nBlockMaxWeight = 4'000'000;
+    LogPrintf("ConfiguredOptions[regtest]: mp=%d, height=%d, nBlockMaxWeight=%zu\n",
+              mp, cur_height, static_cast<size_t>(options.nBlockMaxWeight));
+    return ClampOptions(options);
+}
 
     // ✅ mempool=0: 초기 조립 경로 안정화 — 기본 한도 사용
     if (mp == 0) {
@@ -173,9 +184,15 @@ static BlockAssembler::Options ConfiguredOptions(const CTxMemPool* mempool, cons
         return ClampOptions(options);
     }
 
-    // ✅ Adaptive 계산 + 합의 한도 내 clamp
-    const int hard_cap = std::min<int>(static_cast<int>(MAX_BLOCK_WEIGHT),
-                                       static_cast<int>(consensus.btcbt_max_block_size));
+          // ✅ Adaptive 계산 + 합의 한도 내 clamp
+    const int btcbt_max_weight = (consensus.btcbt_max_block_size > 0)
+                                   ? (int)(consensus.btcbt_max_block_size * WITNESS_SCALE_FACTOR)
+                                   : (int)MAX_BLOCK_WEIGHT;
+
+    const int hard_cap = (params.GetChainType() == ChainType::BTCBT)
+        ? btcbt_max_weight
+        : (int)MAX_BLOCK_WEIGHT;
+
     const int target = GetAdaptiveMaxBlockWeight(static_cast<size_t>(mp), cur_height, consensus);
     options.nBlockMaxWeight = std::clamp<int>(target, 4000, hard_cap);
 
@@ -277,16 +294,19 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock(const CScript& sc
         const int mp = (m_mempool ? static_cast<int>(m_mempool->size()) : 0);
 
         // const m_options를 수정할 수 없으므로, '의도한 값'을 계산해서 현재 값과 비교만 수행
-        size_t desired_weight = 0;
+              size_t desired_weight = 0;
         if (is_regtest) {
-            desired_weight = static_cast<size_t>(MAX_BLOCK_WEIGHT);
+            desired_weight = 4'000'000;
         } else if (mp == 0) {
-            desired_weight = static_cast<size_t>(DEFAULT_BLOCK_MAX_WEIGHT);
+            desired_weight = (size_t)DEFAULT_BLOCK_MAX_WEIGHT;
         } else {
-            const int hard_cap = std::min<int>(static_cast<int>(MAX_BLOCK_WEIGHT),
-                                               static_cast<int>(consensus.btcbt_max_block_size));
-            const int target = GetAdaptiveMaxBlockWeight(static_cast<size_t>(mp), nHeight, consensus);
-            desired_weight = static_cast<size_t>(std::clamp<int>(target, 4000, hard_cap));
+            const size_t btcbt_max_weight = (size_t)consensus.btcbt_max_block_size * (size_t)WITNESS_SCALE_FACTOR;
+
+            const size_t hard_cap =
+                (params.GetChainType() == ChainType::BTCBT) ? btcbt_max_weight : (size_t)MAX_BLOCK_WEIGHT;
+
+            const int target = GetAdaptiveMaxBlockWeight((size_t)mp, nHeight, consensus);
+            desired_weight = (size_t)std::clamp<int>(target, 4000, (int)hard_cap);
         }
         // 로그: 현재 값과 의도한 값 비교(필요 시 추적)
         LogPrintf("CreateNewBlock: mp=%d, height=%d, nBlockMaxWeight(cur)=%zu, desired=%zu\n",
@@ -378,10 +398,12 @@ bool BlockAssembler::TestPackage(uint64_t packageSize, int64_t packageSigOpsCost
 
     const auto& consensus = m_chainstate.m_chainman.GetParams().GetConsensus();
     const int cur_height = nHeight;
-    const int64_t fork_sigops = 200000;
-    const int64_t sigops_limit = (cur_height >= consensus.btcbt_fork_block_height)
-                                 ? fork_sigops
-                                 : MAX_BLOCK_SIGOPS_COST;
+    const int fork_h = consensus.btcbt_fork_block_height;
+    const bool post_fork = (cur_height >= fork_h + 1);
+
+    const int64_t sigops_limit = post_fork
+        ? (int64_t)consensus.btcbt_max_block_sigops_cost
+        : (int64_t)MAX_BLOCK_SIGOPS_COST;
 
     const int64_t cur_sigops = static_cast<int64_t>(nBlockSigOpsCost);
     if (cur_sigops + packageSigOpsCost >= sigops_limit) return false;
