@@ -183,74 +183,65 @@ static unsigned int GetNextWorkRequired_ASERT(const CBlockIndex* pindexLast, con
 {
     Assert(pindexLast != nullptr);
 
-    const int anchor_h = params.btcbt_asert_anchor_height;     // -1이면 래퍼에서 이미 차단됨
-const unsigned int anchor_bits = params.btcbt_asert_anchor_bits; // 0이면 래퍼에서 차단
+    const int anchor_h = params.btcbt_asert_anchor_height;
+    const unsigned int anchor_bits = params.btcbt_asert_anchor_bits;
 
-    // 높이로 앵커 블록 찾기
-    const CBlockIndex* anchor = pindexLast;
-    while (anchor && anchor->nHeight > anchor_h) {
-        anchor = anchor->pprev;
-    }
+    // ✅ 안정적 앵커 탐색 (O(1)~O(logN))
+    const CBlockIndex* anchor = pindexLast->GetAncestor(anchor_h);
+
     if (!anchor || anchor->nHeight != anchor_h) {
-        // 안전장치: 앵커를 못 찾으면 레거시로
-        return GetNextWorkRequired_Legacy(pindexLast, pblock, params);
+        // ✅ 레거시 폴백 금지: 같은 노드에서 GBT/검증 bits가 갈라지는 원인 제거
+        // 앵커 못 찾는 비정상 상황에서는 최소한 anchor_bits를 반환 (결정론/단일화)
+        return anchor_bits;
     }
 
-    // 기준 블록 간격 (BTCBT가 따로 지정했다면 그것을 사용)
-    // 기준 블록 간격 (하드 가드)
-int64_t T = (params.btcbt_block_interval > 0) ? params.btcbt_block_interval
-                                              : params.nPowTargetSpacing;
-if (T <= 0) {
-    // 안전장치: 분모 0 회피 + 레거시 경로로 폴백
-    return GetNextWorkRequired_Legacy(pindexLast, pblock, params);
-}
-
+    // 기준 블록 간격
+    int64_t T = (params.btcbt_block_interval > 0) ? params.btcbt_block_interval : params.nPowTargetSpacing;
+    if (T <= 0) {
+        return anchor_bits;
+    }
 
     const arith_uint256 powLimit = UintToArith256(params.powLimit);
 
-    // 기준 타깃: "앵커 bits" (요청사항)
+    // 기준 타깃: 앵커 bits
     arith_uint256 target_ref; target_ref.SetCompact(anchor_bits);
 
-        // ✅ next block 기준으로 time/height diff 계산 (pblock->nTime 반영)
     const int64_t next_height = pindexLast->nHeight + 1;
 
-        int64_t next_block_time = 0;
+    int64_t next_block_time = 0;
     if (pblock) {
         next_block_time = pblock->GetBlockTime();
     } else {
-        // ✅ 템플릿/채굴 작업 생성에서도 "현재 시각" 기준으로 bits를 계산해야
-        //    검증(exp)과 동일해져서 bad-diffbits가 사라짐
-                int64_t now = GetTime();
+        int64_t now = GetTime();
         const int64_t min_time = pindexLast->GetMedianTimePast() + 1;
         if (now < min_time) now = min_time;
         next_block_time = now;
     }
 
-
     const int64_t time_diff   = next_block_time - anchor->GetBlockTime();
     const int64_t height_diff = next_height     - anchor->nHeight;
     const int64_t ideal_time  = height_diff * T;
     const int64_t offset      = time_diff - ideal_time;
-  
-      // 간략 버전의 지수 근사 (정식 ASERT로 교체 권장)
-      arith_uint256 target = target_ref;
-  
-      // ASERT half-life(초). (예: 2일 = 172800)
-      constexpr int64_t HALF_LIFE = 2 * 24 * 60 * 60;
-      const int64_t exponent = (offset * 65536) / HALF_LIFE;
-  
-      // 2^floor(exponent/65536)
-      if (exponent >= 0) {
 
-        target <<= (exponent / 65536);
-    } else {
-        target >>= ((-exponent) / 65536);
-    }
+    arith_uint256 target = target_ref;
 
-    // 잔여분(선형 근사): target *= (1 + frac)
-    const int64_t frac = exponent % 65536;
+    // BTCBT: ASERT half-life (seconds). Prefer consensus param; fallback to 2 days.
+    const int64_t HALF_LIFE = (params.btcbt_asert_half_life > 0) ? params.btcbt_asert_half_life : 172800;
+
+    // ✅ overflow 방지 (offset*65536)
+    const __int128 num = ( (__int128)offset ) * 65536;
+    const int64_t exponent = (int64_t)(num / HALF_LIFE);
+
+    // ✅ 음수 exponent 처리 보정 (floor division)
+    int64_t shift = exponent / 65536;
+    int64_t frac  = exponent % 65536;
+    if (frac < 0) { frac += 65536; shift -= 1; }
+
+    if (shift >= 0) target <<= shift;
+    else            target >>= (-shift);
+
+    // frac는 항상 0..65535
     if (frac != 0) {
-        // 정수 산술 근사: target *= (10000 + frac*10000/65536) / 10000
         target *= 10000 + ((frac * 10000) / 65536);
         target /= 10000;
     }
@@ -258,7 +249,6 @@ if (T <= 0) {
     if (target > powLimit) target = powLimit;
     return target.GetCompact();
 }
-
 // ============================================================================
 // 난이도 전이 허용 검사 (정책)
 //   - 새 forkHeight 우선 사용
