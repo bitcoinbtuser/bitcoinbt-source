@@ -49,8 +49,8 @@ Formal rule transition:
 
 For block height \( h \):
 
-- Bitcoin rules apply when \( h \le 903,844 \)  
-- BitcoinBT rules apply when \( h \ge 903,845 \)  
+Bitcoin rules apply when h <= 903,844
+BitcoinBT rules apply when h >= 903,845
 
 The fork boundary is constant and defined at the consensus level.
 
@@ -128,7 +128,7 @@ identical validation results for identical input data.
 ./autogen.sh
 ./configure
 make  
-
+```
 ---
 
 ## Run Node (Example)
