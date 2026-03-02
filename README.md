@@ -49,8 +49,8 @@ Formal rule transition:
 
 For block height \( h \):
 
-Bitcoin rules apply when h <= 903,844
-BitcoinBT rules apply when h >= 903,845
+-Bitcoin rules apply when h <= 903,844
+-BitcoinBT rules apply when h >= 903,845
 
 The fork boundary is constant and defined at the consensus level.
 
