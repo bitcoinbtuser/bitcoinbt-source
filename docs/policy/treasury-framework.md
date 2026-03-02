@@ -1,6 +1,6 @@
 # BitcoinBT (BTCBT)
 ## Network, Monetary & Treasury Roadmap  
-### (Exchange Submission & Public Disclosure – Defensive Version)
+
 
 ---
 
