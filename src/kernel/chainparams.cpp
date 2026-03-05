@@ -440,13 +440,12 @@ consensus.btcbt_halving_interval       = 210000;        // 약 2년
 consensus.btcbt_max_block_size         = 32'000'000;    // 32 MB
 consensus.btcbt_max_block_sigops_cost  = 80'000;
 
-        // ASERT 앵커 (공식 메인넷 런칭 시점용)
+               // ASERT 앵커 (903846부터 ASERT 정합)
         //
-                //  - fork height(903,844)는 그대로 유지 (비트코인 정통 하드포크)
-        //  - warmup을 fork+6까지 사용하므로, ASERT 앵커도 fork+6(=903,850)에 둔다.
-        //  - 이렇게 하면 "특별보상 구간(fork+6)까지는 고정 난이도, fork+7부터 DAA 정상 작동"으로 설명이 단순해진다.
-        //  - bits는 초기 난이도를 powLimit(0x1d00ffff) 수준으로 설정
- consensus.btcbt_asert_anchor_height = 903850;
+        //  - fork height(903,844)는 그대로 유지
+        //  - fork+1(=903,845)을 앵커 블록으로 두고(powLimit),
+        //    앵커+1(=903,846)부터 ASERT가 적용되도록 한다.
+ consensus.btcbt_asert_anchor_height = 903845;
  consensus.btcbt_asert_anchor_hash   = uint256{};
  consensus.btcbt_asert_anchor_bits   = 0x1d00ffff;
  consensus.btcbt_asert_half_life     = 172800;   // ✅ 2 days
