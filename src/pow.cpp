@@ -285,8 +285,19 @@ target_ref.SetCompact(anchor_bits);
 const int64_t half_life = (params.btcbt_asert_half_life > 0) ? params.btcbt_asert_half_life : 172800;
 
 // ✅ BCHN 정식: time_delta = eval_time - anchor_parent_time
-if (anchor->pprev == nullptr) return anchor_bits;
-const int64_t anchor_parent_time = anchor->pprev->GetBlockTime();
+// ⚠ BTCBT 포크 직후(앵커=903845)에는 903844(비트코인 과거 시간)를 부모로 쓰면 time_diff가 비정상적으로 커져
+// 항상 powLimit로 clamp되어 bits가 1d00ffff에 고정될 수 있음.
+// 따라서 포크+1 앵커인 경우, 가상 부모 시간을 (anchor_time - T)로 고정한다.
+const int64_t anchor_time = anchor->GetBlockTime();
+
+int64_t anchor_parent_time = 0;
+if (anchor->nHeight == fork_h + 1) {
+    anchor_parent_time = anchor_time - T;
+} else {
+    if (anchor->pprev == nullptr) return anchor_bits;
+    anchor_parent_time = anchor->pprev->GetBlockTime();
+}
+
 const int64_t time_diff   = pindexLast->GetBlockTime() - anchor_parent_time;
 const int64_t height_diff = pindexLast->nHeight       - anchor->nHeight;
 
