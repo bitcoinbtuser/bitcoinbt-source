@@ -434,23 +434,26 @@ public:
         consensus.btcbt_fork_block_height = 903844;
         consensus.btcbt_fork_block_hash   = uint256S("000000000000000000015f4b69129c42068a384d79b7693efd426a369b865fa9");
 
-                // 포크 이후 BTCBT 규칙
- consensus.btcbt_block_interval         = 5 * 60;        // 5분
-consensus.btcbt_halving_interval       = 210000;        // 약 2년
-consensus.btcbt_max_block_size         = 32'000'000;    // 32 MB
-consensus.btcbt_max_block_sigops_cost  = 80'000;
+        // 포크 이후 BTCBT 규칙
+        consensus.btcbt_block_interval         = 5 * 60;        // 5분
+        consensus.btcbt_halving_interval       = 210000;        // 약 2년
+        consensus.btcbt_max_block_size         = 32'000'000;    // 32 MB
+        consensus.btcbt_max_block_sigops_cost  = 80'000;
 
-               // ASERT 앵커 (903846부터 ASERT 정합)
+        // ASERT 앵커 (방법 B, 보수적 진입)
         //
         //  - fork height(903,844)는 그대로 유지
-        //  - fork+1(=903,845)을 앵커 블록으로 두고(powLimit),
-        //    앵커+1(=903,846)부터 ASERT가 적용되도록 한다.
- consensus.btcbt_asert_anchor_height = 903845;
- consensus.btcbt_asert_anchor_hash   = uint256{};
- consensus.btcbt_asert_anchor_bits   = 0x1d00ffff;
- consensus.btcbt_asert_half_life     = 172800;   // ✅ 2 days
+        //  - fork+1(=903,845)은 reset block(powLimit)
+        //  - fork+2(=903,846)을 ASERT anchor로 둔다
+        //  - fork+3(=903,847)은 fixed bits로 1블록 더 안정화
+        //  - 903848부터 ASERT 변화가 시작되도록 한다
+        consensus.btcbt_asert_anchor_height = 903846;
+        consensus.btcbt_asert_anchor_hash   = uint256{};
+        consensus.btcbt_asert_anchor_bits   = 0x1d00ffff;
+        consensus.btcbt_asert_half_life     = 86400;   // 1 days
         // 포크 이전(레거시 BTC 구간) 파라미터
         consensus.nSubsidyHalvingInterval = 210000;
+
 
         consensus.nPowTargetSpacing       = 10 * 60;
         consensus.nPowTargetTimespan      = 14 * 24 * 60 * 60;
