@@ -450,7 +450,7 @@ public:
         consensus.btcbt_asert_anchor_height = 903846;
         consensus.btcbt_asert_anchor_hash   = uint256{};
         consensus.btcbt_asert_anchor_bits   = 0x1d00ffff;
-        consensus.btcbt_asert_half_life     = 86400;   // 1 days
+        consensus.btcbt_asert_half_life     = 43200;   // 12 hours
         // 포크 이전(레거시 BTC 구간) 파라미터
         consensus.nSubsidyHalvingInterval = 210000;
 
