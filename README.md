@@ -1,35 +1,50 @@
 # BitcoinBT (BTCBT)
 
-BitcoinBT (BTCBT) is an independent Bitcoin hard fork project
-based on Bitcoin Core v26.
+BitcoinBT (BTCBT) is a Bitcoin hard fork project based on Bitcoin Core v26.
 
-This repository contains the reference implementation of the
-BitcoinBT node software for public testing,
-technical validation, and deterministic consensus verification.
+This repository contains the reference implementation of the BitcoinBT node software for public test mainnet operation, technical validation, and deterministic consensus verification.
 
-BitcoinBT operates independently and does not modify
-or affect the Bitcoin (BTC) network.
+BitcoinBT operates as an independent network and does not modify or affect the Bitcoin (BTC) network.
+
+---
+
+## Public Test Mainnet Notice
+
+BitcoinBT public test mainnet began from the first post-fork block, Block #903,845.
+
+Start time:
+**2026-03-11 06:21:21 AM**
+
+UTC time:
+**2026-03-10 21:21:21 UTC**
+
+The current public test mainnet phase is scheduled to continue through **2026-03-29**.
+
+This schedule may be adjusted depending on test results, network conditions, and validation status.
+
+This phase is for technical testing only.
+It is not an investment offer, token sale, airdrop, or any guarantee of value or profit.
 
 ---
 
 ## Project Status
 
-**Public Test Phase (Pre-Mainnet Validation)**
+**Public Test Mainnet Phase**
 
 BitcoinBT is currently operating in a public validation environment.
 
-The live test network is used to verify:
+The live test network is being used to verify:
 
-- Consensus rule enforcement  
-- Block production behavior  
-- Mining performance  
-- Reward issuance logic  
-- ASERT difficulty adjustment  
-- Network propagation stability  
+- Consensus rule enforcement
+- Block production behavior
+- Mining performance
+- Reward issuance logic
+- ASERT difficulty adjustment
+- Network propagation stability
+- Node synchronization consistency
+- Wallet and transaction behavior under test conditions
 
-Consensus parameters described in this repository
-represent the intended mainnet specification,
-unless explicitly marked as test-specific.
+Consensus parameters described in this repository represent the intended BitcoinBT chain specification unless explicitly marked as test-specific.
 
 Mainnet finalization has not yet been declared.
 
@@ -111,7 +126,7 @@ and is publicly verifiable in the source code.
 - Fork activation height: 903,845  
 - Target block interval: 300 seconds  
 - Difficulty adjustment algorithm: ASERT  
-- ASERT half-life: 172,800 seconds (2 days)  
+- ASERT half-life: 43,200 seconds (12 hours)  
 - Maximum consensus block size: 32 MB  
 - Halving interval: 210,000 blocks  
 - Supply cap: 21,000,000 BTCBT  
