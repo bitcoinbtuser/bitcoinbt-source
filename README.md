@@ -8,22 +8,21 @@ BitcoinBT operates as an independent network and does not modify or affect the B
 
 ---
 
-## Public Test Mainnet Notice
+## Public Test Mainnet Closing Declaration
 
-BitcoinBT public test mainnet began from the first post-fork block, Block #903,845.
+BitcoinBT (BTCBT) hereby announces that its public test mainnet phase will officially close on **2026-03-28**.
 
-Start time:
-**2026-03-11 06:21:21 AM**
+The public test mainnet, which began from the first post-fork block at Block #903,845, was conducted for the purpose of technical validation, deterministic consensus verification, mining and reward behavior review, node synchronization checks, and network stability confirmation.
 
-UTC time:
-**2026-03-10 21:21:21 UTC**
+Throughout this public validation phase, the required testing procedures were carried out and the intended verification objectives were completed. Based on the results of this phase, the project has concluded that the public test mainnet process has reached its planned completion stage.
 
-The current public test mainnet phase is scheduled to continue through **2026-03-29**.
+Accordingly, the BitcoinBT public test mainnet will be formally concluded on **2026-03-28**.
 
-This schedule may be adjusted depending on test results, network conditions, and validation status.
+From the end of the test phase through **2026-03-29**, BitcoinBT will conduct a final formal-mainnet simulation process. This stage is intended to confirm deployment readiness, launch procedure consistency, and transition stability before the mainnet commencement stage.
 
-This phase is for technical testing only.
-It is not an investment offer, token sale, airdrop, or any guarantee of value or profit.
+Upon completion of the simulation process, BitcoinBT will move forward with formal mainnet commencement starting on **2026-03-30**.
+
+The official mainnet commencement declaration will be issued on **2026-03-30**.
 
 ---
 
