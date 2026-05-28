@@ -7,6 +7,86 @@ This repository contains the reference implementation of the BitcoinBT node soft
 BitcoinBT operates as an independent network and does not modify or affect the Bitcoin (BTC) network.
 
 ---
+# BitcoinBT (BTCBT) — Official Mainnet Validation Completion Declaration
+
+BitcoinBT (BTCBT) officially confirms that all pre-mainnet validation procedures and network tests have been successfully completed.
+
+The project has completed multiple stages of technical verification prior to public mainnet activation, including:
+
+* Test Mainnet Validation
+* Regtest Network Verification
+* Fork Simulation Testing
+* SHA-256 Mining Integration
+* Node Synchronization & Network Propagation
+* RPC & Wallet Function Verification
+* Consensus & Chain Stability Validation
+
+The fork continuity based on Bitcoin block height 903,844 has also been successfully validated through the internal simulation environment.
+
+Following the successful completion of all validation phases, BitcoinBT (BTCBT) is now proceeding toward official public mainnet activation and mining operation.
+
+---
+
+## Official Mainnet & Mining Activation Schedule (Planned)
+
+### Asia (KST / JST / CST)
+
+May 31, 2026 — 4:00 PM
+
+### Europe (UTC / CET)
+
+May 31, 2026 — 9:00 AM UTC
+May 31, 2026 — 11:00 AM CET
+
+### United States
+
+May 31, 2026 — 5:00 AM EDT
+May 31, 2026 — 2:00 AM PDT
+
+---
+
+## BitcoinBT (BTCBT) Main Parameters
+
+* Bitcoin Core v26-based hard fork
+* SHA-256 Proof-of-Work
+* 5-minute block interval
+* ASERT difficulty adjustment
+* Adaptive Block Size
+* SegWit / Taproot support
+* Bitcoin block height 903,844 fork continuity
+
+---
+
+Additional information regarding:
+
+* public node synchronization
+* mining pool access
+* wallet configuration
+* explorer infrastructure
+* ecosystem services
+
+will be announced through the official channels alongside the mainnet activation process.
+
+---
+
+## Official Channels
+
+Website
+https://bitcoinbt.xyz
+
+GitHub
+https://github.com/bitcoinbtuser/bitcoinbt-source
+
+Telegram
+https://t.me/Crypto_BTCBT
+
+Twitter (X)
+https://x.com/BTCBT_BitcoinBT
+
+Email
+[info@bitcoinbt.xyz](mailto:info@bitcoinbt.xyz)
+
+---
 
 ## Public Test Mainnet Closing Declaration
 
