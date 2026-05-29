@@ -42,7 +42,15 @@ May 31, 2026 — 11:00 AM CET
 
 May 31, 2026 — 5:00 AM EDT
 May 31, 2026 — 2:00 AM PDT
+### Initial Network Verification
 
+⚠️ Mainnet activation will begin at the scheduled time.
+
+Following activation, BitcoinBT will conduct an initial network stabilization and block generation verification period.
+
+Node synchronization, mining operation, block generation, wallet connectivity, explorer synchronization, and overall network stability will be monitored and verified.
+
+Public confirmation of mining, wallet, explorer, and network services is expected approximately 30 minutes after activation.
 ---
 
 ## BitcoinBT (BTCBT) Main Parameters
