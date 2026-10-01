@@ -6,6 +6,46 @@ The BitcoinBT network is currently operating as a live public mainnet with activ
 
 ---
 
+## Development Status
+
+**A new phase of technical development and review began on October 1, 2026.**
+
+BitcoinBT is beginning a new phase of development covering both the **BitcoinBT network and the official BitcoinBT mining pool**.
+
+The purpose of this development phase is to review, improve, and further develop the technical infrastructure of the BitcoinBT ecosystem.
+
+### Mining Pool — Development Goals
+
+Current development areas under consideration include:
+
+* Stratum compatibility improvements
+* Broader compatibility with SHA-256 ASIC miners
+* Mining job generation and distribution improvements
+* Difficulty and share handling review
+* Pool stability and performance improvements
+* Miner connection and job-processing improvements
+
+### BitcoinBT Network — Development Goals
+
+Current development areas under consideration include:
+
+* BitcoinBT Core improvements
+* Network and node infrastructure improvements
+* RPC and infrastructure improvements
+* Mining-related improvements
+* Performance and compatibility improvements
+* Other technical improvements identified during development
+
+> **Important:** These are current development goals and plans, not finalized specifications or guaranteed features. The actual scope and implementation may change depending on technical testing, compatibility, security considerations, and development results.
+
+Existing mainnet and mining services will continue to operate during the development process whenever possible.
+
+Significant changes will be tested and reviewed before deployment to the production environment.
+
+Further development updates will be published as work progresses.
+
+---
+
 ## Network Information
 
 | Parameter             | Value                  |
